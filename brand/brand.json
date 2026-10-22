@@ -1,0 +1,12 @@
+{
+  "accent": "#a8c8f0",
+  "bg": "#001931",
+  "fg": "#ddebf5",
+  "muted": "#566a7a",
+  "font_title": "Poppins",
+  "font_body": "Poppins",
+  "handles": [
+    "@gutmannesilva"
+  ],
+  "caption_style": "static-phrase"
+}

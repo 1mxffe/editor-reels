@@ -1,0 +1,232 @@
+<!doctype html>
+<!--
+  Capa do Reel 1080x1920 (scripts/cover_compose.py). Pagina sem rede: o driver
+  (render_cover.mjs) chama window.setup(dados), que monta a capa e devolve as
+  medidas. Texto entra so por textContent; foto, logotipo e fontes chegam como
+  data: URI lidos pelo Python. Camadas, de baixo para cima: foto, vinheta do
+  topo, degrade azul-marinho, logotipo do escritorio, bloco de texto (pill da
+  area, gancho, subtitulo com a ultima linha em destaque) e o @ no rodape.
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; img-src data:; style-src 'unsafe-inline'; font-src data:">
+<title>Capa</title>
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; background: var(--bg, #001931); }
+  #stage { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; overflow: hidden; background: var(--bg); }
+  #photo { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; object-fit: cover; display: block; }
+  #vignette, #shade, #scrim { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; }
+  #logo { position: absolute; left: 50%; transform: translateX(-50%); height: auto; display: block;
+          filter: drop-shadow(0 4px 16px var(--shadow)); }
+  #block { position: absolute; display: flex; flex-direction: column; align-items: flex-start; }
+  #pill { display: inline-flex; align-items: center; gap: 14px; box-sizing: border-box; max-width: 100%;
+          min-height: 62px; padding: 10px 28px 10px 22px; border-radius: 999px;
+          background: var(--glass); border: 1.5px solid var(--edge); color: var(--fg); }
+  #pill svg { flex: none; width: 26px; height: 26px; }
+  #area { font-family: var(--font-body); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;
+          line-height: 1.2; overflow-wrap: anywhere; }
+  #hook { margin: 22px 0 0; max-width: 100%; font-family: var(--font-title); font-weight: 800; line-height: 1.02;
+          letter-spacing: -0.01em; white-space: pre-line; word-break: normal; hyphens: manual;
+          color: var(--fg); background: linear-gradient(180deg, #ffffff 15%, var(--fg) 100%);
+          -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  #sub { margin: 20px 0 0; max-width: 100%; font-family: var(--font-body); font-weight: 600; line-height: 1.16; }
+  #subMain, #subAccent { display: block; white-space: pre-line; overflow-wrap: anywhere; }
+  #subMain { color: var(--fg); }
+  #subAccent { color: var(--accent); }
+  #handle { position: absolute; text-align: center; font-family: var(--font-body); font-weight: 500;
+            letter-spacing: 0.02em; color: var(--fg-soft); overflow-wrap: anywhere; line-height: 1.25; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <img id="photo" alt="">
+  <div id="vignette"></div>
+  <div id="scrim"></div>
+  <div id="shade"></div>
+  <img id="logo" alt="Gutmann &amp; Silva">
+  <div id="block">
+    <div id="pill"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="3.5"/><path d="M8 8.5h8M8 12h8M8 15.5h5"/></svg><span id="area"></span></div>
+    <h1 id="hook"></h1>
+    <p id="sub"><span id="subMain"></span><span id="subAccent"></span></p>
+  </div>
+  <div id="handle"></div>
+</div>
+<script>
+'use strict';
+(() => {
+  let L = null;
+
+  function rgb(hex) {
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) throw new Error('cor invalida: ' + hex);
+    return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+  }
+  const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+  const family = (name) => {
+    const names = [name, 'Poppins'].filter((n, i, all) => n && all.indexOf(n) === i);
+    // sem Poppins na maquina: sans-serif geometricas parecidas antes da generica
+    return names.concat(['Montserrat', 'Inter']).filter((n, i, all) => all.indexOf(n) === i)
+      .map((n) => '"' + String(n).replace(/["\\]/g, '') + '"').join(', ') + ', sans-serif';
+  };
+  const $ = (id) => document.getElementById(id);
+
+  function loadImg(img, src) {
+    img.src = src;
+    return img.decode();
+  }
+
+  // Caixa justa do texto (uniao dos retangulos das linhas), em px do quadro.
+  function textBox(el) {
+    if (!el || !el.textContent) return null;
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    const rects = [...r.getClientRects()].filter((q) => q.width > 0 && q.height > 0);
+    if (!rects.length) return null;
+    return {
+      top: Math.min(...rects.map((q) => q.top)), bottom: Math.max(...rects.map((q) => q.bottom)),
+      left: Math.min(...rects.map((q) => q.left)), right: Math.max(...rects.map((q) => q.right)),
+    };
+  }
+  function elBox(el) {
+    if (!el || el.style.display === 'none') return null;
+    const q = el.getBoundingClientRect();
+    return { top: q.top, bottom: q.bottom, left: q.left, right: q.right };
+  }
+  function lineCount(el) {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    const tops = new Set();
+    for (const q of r.getClientRects()) if (q.width > 0 && q.height > 0) tops.add(Math.round(q.top));
+    return tops.size;
+  }
+  const overflows = (el) => el.scrollWidth > el.clientWidth + 0.5;
+
+  // Maior corpo (de hookMax a hookMin) em que o gancho cabe em ate 2 linhas sem
+  // quebrar palavra; se nenhum cabe (palavra enorme), repete permitindo quebrar
+  // a palavra. Se nem assim cabe em 2 linhas, fica no minimo e o Python recusa.
+  function fitHook(hook) {
+    for (const wrap of ['normal', 'anywhere']) {
+      hook.style.overflowWrap = wrap;
+      for (let s = L.hookMax; s >= L.hookMin; s -= L.hookStep) {
+        hook.style.fontSize = s + 'px';
+        if (!overflows(hook) && lineCount(hook) <= 2) return s;
+      }
+    }
+    hook.style.fontSize = L.hookMin + 'px';
+    return L.hookMin;
+  }
+
+  // Degrade azul-marinho preso ao topo MEDIDO do bloco de texto: transparente
+  // ate shade[0] px acima, 55 % a shade[1] px, 88 % a shade[2] px acima do topo
+  // e ficando solido ate a base (o texto nunca fica sobre foto clara).
+  function placeShade(bg) {
+    const top = $('block').getBoundingClientRect().top;
+    const g = L.shade;
+    const at = (px) => Math.max(0, Math.min(L.height, px)).toFixed(1) + 'px';
+    $('shade').style.background = `linear-gradient(180deg, ${rgba(bg, 0)} 0px, ${rgba(bg, 0)} ${at(top - g[0])}, `
+      + `${rgba(bg, 0.55)} ${at(top - g[1])}, ${rgba(bg, 0.88)} ${at(top - g[2])}, `
+      + `${rgba(bg, 0.95)} ${at(top + 150)}, ${rgba(bg, 1)} ${at(top + 300)}, ${rgba(bg, 1)} ${L.height}px)`;
+  }
+
+  window.setup = async (d) => {
+    L = d.layout;
+    const root = document.documentElement.style;
+    const bg = rgb(d.colors.bg), fg = rgb(d.colors.fg);
+    root.setProperty('--bg', d.colors.bg);
+    root.setProperty('--fg', d.colors.fg);
+    root.setProperty('--fg-soft', rgba(fg, 0.74));
+    root.setProperty('--accent', d.colors.accent);
+    root.setProperty('--glass', 'rgba(255, 255, 255, 0.10)');
+    root.setProperty('--edge', 'rgba(255, 255, 255, 0.30)');
+    root.setProperty('--shadow', rgba(bg, 0.55));
+    root.setProperty('--font-title', family(d.fonts.title));
+    root.setProperty('--font-body', family(d.fonts.body));
+
+    for (const f of d.fontFiles || []) {
+      try { document.fonts.add(await new FontFace('Poppins', `url("${f.url}")`, { weight: String(f.weight) }).load()); }
+      catch (e) { /* fonte ilegivel: fica a da maquina */ }
+    }
+
+    // veu atras do logotipo: opacidade calculada no Python pela luminancia da
+    // foto naquele ponto (wordmark branco legivel ate em foto clara)
+    const a = Math.max(0, Math.min(0.95, Number(d.logoScrim) || 0));
+    const lb = L.logoTop + L.logoWidth * 0.55 + 28;  // ~28 px abaixo do wordmark
+    $('scrim').style.background = `linear-gradient(180deg, ${rgba(bg, a)} 0px, ${rgba(bg, a)} ${lb.toFixed(0)}px, `
+      + `${rgba(bg, a * 0.45)} ${(lb + 110).toFixed(0)}px, ${rgba(bg, 0)} ${(lb + 240).toFixed(0)}px)`;
+    $('vignette').style.background = `linear-gradient(180deg, ${rgba(bg, 0.6)} 0%, ${rgba(bg, 0.3)} 14%, ${rgba(bg, 0)} 30%)`;
+
+    const photo = $('photo'), logo = $('logo');
+    photo.style.objectPosition = d.photoPosition;
+    logo.style.top = L.logoTop + 'px';
+    logo.style.width = L.logoWidth + 'px';
+    await Promise.all([loadImg(photo, d.photo), loadImg(logo, d.logo)]);
+
+    const block = $('block');
+    block.style.left = L.margin + 'px';
+    block.style.right = L.margin + 'px';
+    block.style.bottom = (L.height - L.blockBottom) + 'px';
+    $('area').style.fontSize = L.areaSize + 'px';
+    $('sub').style.fontSize = L.subSize + 'px';
+
+    if (d.area) $('area').textContent = d.area; else $('pill').style.display = 'none';
+    $('hook').textContent = d.hook;
+    if (d.subMain) $('subMain').textContent = d.subMain;
+    if (d.subAccent) $('subAccent').textContent = d.subAccent;
+    if (!d.subMain && !d.subAccent) $('sub').style.display = 'none';
+    if (!d.area) $('hook').style.marginTop = '0';
+
+    const handle = $('handle');
+    handle.style.left = L.margin + 'px';
+    handle.style.right = L.margin + 'px';
+    handle.style.top = L.handleTop + 'px';
+    handle.style.fontSize = L.handleSize + 'px';
+    handle.textContent = d.handle;
+
+    await document.fonts.ready;
+    const hookSize = fitHook($('hook'));
+    placeShade(bg);
+    return window.inspect(hookSize);
+  };
+
+  window.inspect = (hookSize) => {
+    const hook = $('hook');
+    const boxes = {
+      pill: elBox($('pill')), area: textBox($('area')), hook: textBox(hook),
+      subMain: textBox($('subMain')), subAccent: textBox($('subAccent')),
+      handle: textBox($('handle')), logo: elBox($('logo')), block: elBox($('block')),
+    };
+    const textNames = ['pill', 'area', 'hook', 'subMain', 'subAccent', 'handle'];
+    const inside = (b) => b.top >= L.safeTop && b.bottom <= L.height - L.safeBottom
+      && b.top >= L.gridTop && b.bottom <= L.gridBottom
+      && b.left >= L.margin - 14 && b.right <= L.width - L.margin + 14;
+    const imgs = [...document.querySelectorAll('img')];
+    return {
+      boxes,
+      safeOk: textNames.every((n) => !boxes[n] || inside(boxes[n])),
+      hookSize: hookSize === undefined ? parseFloat(getComputedStyle(hook).fontSize) : hookSize,
+      hookLines: lineCount(hook),
+      overflow: {
+        hook: overflows(hook), area: overflows($('area')), subMain: overflows($('subMain')),
+        subAccent: overflows($('subAccent')), handle: overflows($('handle')),
+        block: $('block').scrollWidth > $('block').clientWidth + 0.5,
+      },
+      texts: {
+        hook: hook.textContent, area: $('area').textContent || null,
+        subMain: $('subMain').textContent || null, subAccent: $('subAccent').textContent || null,
+        handle: $('handle').textContent,
+      },
+      areaTransform: getComputedStyle($('area')).textTransform,
+      hookFont: getComputedStyle(hook).fontFamily, hookWeight: getComputedStyle(hook).fontWeight,
+      objectPosition: $('photo').style.objectPosition,
+      imgCount: imgs.length,
+      imgAlts: imgs.map((i) => i.alt),
+      allDataUris: imgs.every((i) => i.src.startsWith('data:')),
+      imgsLoaded: imgs.every((i) => i.complete && i.naturalWidth > 0),
+      xss: window.__xss === undefined ? null : window.__xss,
+    };
+  };
+})();
+</script>
+</body>
+</html>

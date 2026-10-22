@@ -1,0 +1,1284 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<!-- Sem rede: so o proprio script/estilo embutidos e blob:/data: (video, miniaturas e
+     downloads gerados na pagina). Os arquivos do projeto vem pela API de pastas. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src blob: data:; media-src blob: data:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Revisão do Reel</title>
+<style>
+/* Layout: barra do projeto no topo; abas Revisão | Materiais. Na Revisão, player 9:16
+   fixo à esquerda e a transcrição clicável à direita; abaixo de 900 px tudo empilha
+   (vídeo acima da transcrição). Tokens da marca (brand/guia-visual.md): azul-marinho
+   dominante, gelo como variação clara, azul-claro de destaque, Poppins em tudo, sem
+   cor de alerta. Escuro primeiro; o tema claro redefine só os tokens. */
+:root {
+  --bg: #001931;          /* azul-marinho profundo */
+  --surface: #06223f;
+  --surface-2: #0c2d50;
+  --line: rgba(168, 200, 240, .2);
+  --fg: #ddebf5;          /* texto sobre escuro */
+  --muted: #93a8ba;       /* texto secundario (>= 4.5:1 sobre o fundo) */
+  --accent: #a8c8f0;      /* azul de destaque */
+  --accent-ink: #001931;  /* texto sobre o destaque */
+  --cut-bg: rgba(147, 168, 186, .12);
+  --font: "Poppins", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --radius: 14px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f3f8fb; --surface: #ffffff; --surface-2: #e4eef6; --line: rgba(0, 25, 49, .14);
+    --fg: #001931; --muted: #4a5d6c; --accent: #1d4f85; --accent-ink: #ffffff;
+    --cut-bg: rgba(74, 93, 108, .1); color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f3f8fb; --surface: #ffffff; --surface-2: #e4eef6; --line: rgba(0, 25, 49, .14);
+  --fg: #001931; --muted: #4a5d6c; --accent: #1d4f85; --accent-ink: #ffffff;
+  --cut-bg: rgba(74, 93, 108, .1); color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font);
+  font-size: 15px; line-height: 1.55; overflow-wrap: break-word;
+  transition: background-color .25s var(--ease), color .25s var(--ease);
+}
+[hidden] { display: none !important; }
+h1, h2, h3 { margin: 0; line-height: 1.25; text-wrap: balance; }
+h2 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.wrap {
+  max-width: 1200px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+svg.icon { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* botoes */
+button, .btn {
+  font: inherit; color: inherit; cursor: pointer; border-radius: 10px;
+  min-height: 40px; min-width: 40px;
+  transition: background-color .2s var(--ease), border-color .2s var(--ease), color .2s var(--ease), opacity .2s var(--ease);
+}
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px 14px; border: 1px solid var(--line); background: var(--surface-2); font-weight: 500;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.ghost { background: transparent; }
+.btn.icon-only { padding: 8px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input, textarea, select {
+  font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 10px; min-height: 40px; width: 100%; max-width: 100%;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; }
+textarea { resize: vertical; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* topo */
+header.top { border-bottom: 1px solid var(--line); background: var(--bg); }
+header.top .wrap { display: flex; align-items: center; gap: 12px; padding-block: 10px; flex-wrap: wrap; }
+.mark {
+  width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; flex: none;
+  background: var(--surface-2); border: 1px solid var(--line);
+  font-family: Georgia, "Times New Roman", serif; font-weight: 700; letter-spacing: .02em;
+}
+.title-block { min-width: 0; flex: 1 1 180px; }
+.title-block h1 { font-size: 1.05rem; font-weight: 700; }
+.title-block .project { font-size: .8rem; }
+.save-status { font-size: .82rem; font-variant-numeric: tabular-nums; }
+.top-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+
+main { padding-block: 20px 48px; }
+
+/* inicio */
+.start { display: grid; gap: 20px; max-width: 640px; padding-block: 24px; }
+.start h2 { font-size: 1.5rem; font-weight: 700; }
+.start ol { margin: 0; padding-left: 1.2em; display: grid; gap: 6px; }
+.panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 16px; display: grid; gap: 12px; min-width: 0;
+}
+details.panel summary { cursor: pointer; font-weight: 600; min-height: 40px; display: flex; align-items: center; }
+.file-row { display: grid; gap: 6px; }
+.file-row label { font-weight: 500; }
+.alert { border: 1px solid var(--accent); border-radius: 10px; padding: 10px 12px; background: var(--surface-2); }
+.alert:empty { display: none; }
+
+/* abas */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; overflow-x: auto; }
+.tabs [role="tab"] {
+  background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 10px 10px 0 0;
+  padding: 10px 14px; font-weight: 500; color: var(--muted); white-space: nowrap;
+}
+.tabs [role="tab"][aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs .count { font-size: .78rem; margin-left: 4px; }
+
+/* revisao */
+.notice-row { display: grid; gap: 12px; margin-bottom: 20px; }
+.hint { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.hint p { flex: 1 1 260px; min-width: 0; }
+.warn-list { margin: 6px 0 0; padding-left: 1.2em; }
+.layout { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) {
+  .layout { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); align-items: start; }
+  .player { position: sticky; top: 16px; }
+}
+.player { display: grid; gap: 12px; justify-items: center; min-width: 0; }
+.player video {
+  display: block; background: #000; border-radius: var(--radius);
+  height: min(56vh, 600px); width: auto; max-width: 100%; aspect-ratio: 9 / 16; object-fit: contain;
+}
+.player .meta { display: grid; gap: 8px; width: 100%; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 3px 10px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2);
+  font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; font-weight: 600;
+}
+.chip.fit { border-color: var(--accent); }
+#format-chip { text-transform: none; letter-spacing: 0; font-size: .82rem; font-weight: 500; }
+.kpi { font-size: .9rem; font-variant-numeric: tabular-nums; }
+.kpi strong { font-size: 1.4rem; font-weight: 700; }
+.col { display: grid; gap: 20px; min-width: 0; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.section-head p { font-size: .85rem; }
+
+.words { display: flex; flex-wrap: wrap; gap: 2px 3px; line-height: 1.3; }
+.word, .gap {
+  display: inline-flex; align-items: center; min-height: 40px; min-width: 0; max-width: 100%;
+  padding: 2px 6px; border: 1px dashed transparent; background: transparent; border-radius: 8px;
+  font-size: 1.02rem; text-align: left; overflow-wrap: anywhere;
+}
+.word:hover, .gap:hover { background: var(--surface-2); }
+.word[data-state="cut"] { color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1.5px; background: var(--cut-bg); }
+.word[data-pending="true"], .gap[data-pending="true"] { border-color: var(--accent); }
+.gap { font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border-style: solid; border-color: var(--line); }
+.gap[data-state="cut"] { text-decoration: line-through; background: var(--cut-bg); }
+.gap[data-pending="true"] { border-style: dashed; border-color: var(--accent); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .8rem; }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.sw { width: 14px; height: 14px; border-radius: 4px; border: 1px solid var(--line); display: inline-block; }
+.sw.cut { background: var(--cut-bg); }
+.sw.pending { border: 1px dashed var(--accent); }
+
+.phrase-list, .note-list, .graphic-list, .mat-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.phrase { display: grid; gap: 6px; padding: 10px 0; border-top: 1px solid var(--line); }
+.phrase:first-child { border-top: 0; }
+.phrase-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: .82rem; }
+.phrase-time { font-variant-numeric: tabular-nums; }
+.tag { font-size: .72rem; letter-spacing: .05em; text-transform: uppercase; font-weight: 600; color: var(--accent); }
+.phrase[data-edited="true"] .phrase-text { border-color: var(--accent); }
+.note { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.note-time { font-variant-numeric: tabular-nums; font-size: .85rem; padding: 6px 10px; }
+.graphic { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.switch { display: inline-flex; align-items: center; gap: 10px; background: transparent; border: 0; padding: 4px; }
+.switch .track { width: 42px; height: 24px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); position: relative; transition: background-color .2s var(--ease); }
+.switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .22s var(--ease), background-color .2s var(--ease); }
+.switch[aria-checked="true"] .track { background: var(--accent); }
+.switch[aria-checked="true"] .track::after { transform: translateX(18px); background: var(--accent-ink); }
+.empty { padding: 18px; border: 1px dashed var(--line); border-radius: var(--radius); text-align: center; }
+.fallback-bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+/* materiais */
+.drop {
+  border: 1.5px dashed var(--line); border-radius: var(--radius); padding: 22px 16px;
+  display: grid; gap: 10px; justify-items: center; text-align: center; background: var(--surface);
+  transition: border-color .2s var(--ease), background-color .2s var(--ease);
+}
+.drop.over { border-color: var(--accent); background: var(--surface-2); }
+.url-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.url-row input { flex: 1 1 220px; width: auto; min-width: 0; }
+.mat-item {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: start;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px;
+}
+.thumb { width: 64px; height: 64px; border-radius: 10px; background: var(--surface-2); display: grid; place-items: center; overflow: hidden; }
+.thumb img, .thumb video { width: 100%; height: 100%; object-fit: cover; }
+.mat-body { display: grid; gap: 8px; min-width: 0; }
+.mat-name { font-weight: 600; overflow-wrap: anywhere; }
+.mat-link { color: var(--accent); overflow-wrap: anywhere; }
+.mat-fields { display: grid; gap: 8px; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); }
+@media (max-width: 520px) {
+  .mat-item { grid-template-columns: 48px minmax(0, 1fr); }
+  .thumb { width: 48px; height: 48px; }
+  .mat-item .mat-remove { grid-column: 1 / -1; justify-self: end; }
+  .mat-fields { grid-template-columns: minmax(0, 1fr); }
+}
+.grid-2 { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .grid-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body data-state="start">
+<header class="top">
+  <div class="wrap">
+    <div class="mark" aria-hidden="true">GS</div>
+    <div class="title-block">
+      <h1>Revisão do Reel</h1>
+      <p class="project muted" id="project-name">Nenhum projeto aberto</p>
+    </div>
+    <div class="top-actions">
+      <p class="save-status muted" id="save-status" role="status" aria-live="polite"></p>
+      <button type="button" class="btn ghost icon-only" id="theme-toggle" aria-label="Alternar tema claro ou escuro"></button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="start" id="start" aria-labelledby="start-title">
+    <h2 id="start-title">Abra a pasta do Reel</h2>
+    <ol class="muted">
+      <li>Escolha a pasta <strong>projects/&lt;reel&gt;/</strong> (a que tem <strong>review.json</strong>).</li>
+      <li>Toque nas palavras para cortar ou restaurar, corrija legendas e anote.</li>
+      <li>Cada mudança é salva em <strong>decisions.json</strong> dentro da pasta.</li>
+    </ol>
+    <div>
+      <button type="button" class="btn primary" id="open-folder"></button>
+    </div>
+    <p class="alert" id="start-error" role="alert"></p>
+    <details class="panel" id="fallback">
+      <summary>Sem acesso à pasta? Escolher os arquivos</summary>
+      <p class="muted" id="fallback-why">Este navegador não deu acesso à pasta. Escolha o review.json; depois, no player, escolha o vídeo. Nada é gravado na pasta: no fim, baixe o decisions.json e coloque-o em projects/&lt;reel&gt;/.</p>
+      <div class="file-row">
+        <label for="file-review">review.json do projeto</label>
+        <input type="file" id="file-review" accept=".json,application/json">
+      </div>
+    </details>
+  </section>
+
+  <div id="app" hidden>
+    <div class="tabs" role="tablist" aria-label="Seções da revisão">
+      <button type="button" role="tab" id="tab-revisao" aria-controls="panel-revisao" aria-selected="true" tabindex="0">Revisão</button>
+      <button type="button" role="tab" id="tab-materiais" aria-controls="panel-materiais" aria-selected="false" tabindex="-1">Materiais (opcional)<span class="count muted" id="mat-count"></span></button>
+    </div>
+
+    <section id="panel-revisao" role="tabpanel" aria-labelledby="tab-revisao" tabindex="0">
+      <div class="notice-row">
+        <div class="panel hint">
+          <p id="apply-hint">Revisão salva. Peça ao Claude: “aplicar revisão” — ele roda review_apply.py e gera um novo preview.</p>
+          <button type="button" class="btn" id="reload"></button>
+        </div>
+        <div class="panel" id="warnings" role="status" hidden>
+          <h2>Legendas que precisam de atenção</h2>
+          <ul class="warn-list" id="warn-list"></ul>
+        </div>
+        <div class="panel fallback-bar" id="fallback-bar" hidden>
+          <p class="muted" style="flex:1 1 240px">Modo sem pasta: as mudanças ficam só nesta aba. Baixe o arquivo e coloque-o em projects/&lt;reel&gt;/.</p>
+          <button type="button" class="btn" id="download-decisions"></button>
+        </div>
+      </div>
+
+      <div class="layout">
+        <div class="player">
+          <video id="video" controls playsinline preload="metadata"></video>
+          <p class="alert" id="video-msg" role="status"></p>
+          <div class="file-row" id="video-picker" hidden>
+            <label for="file-video">Escolher o preview (saida/preview.mp4)</label>
+            <input type="file" id="file-video" accept="video/*">
+          </div>
+          <div class="meta">
+            <p class="kpi"><span class="muted">Duração após os cortes</span><br><strong id="kept-duration">–</strong> <span class="muted" id="kept-note"></span></p>
+            <div class="chips"><span class="chip" id="format-chip"></span></div>
+            <button type="button" class="btn" id="add-note"></button>
+          </div>
+        </div>
+
+        <div class="col">
+          <section class="panel" aria-labelledby="h-words">
+            <div class="section-head">
+              <h2 id="h-words">Transcrição</h2>
+              <p class="muted">Toque numa palavra para cortar; toque num trecho cortado para restaurar.</p>
+            </div>
+            <div class="legend muted" aria-hidden="true">
+              <span><i class="sw cut"></i>cortado</span>
+              <span><i class="sw pending"></i>mudança ainda não aplicada</span>
+            </div>
+            <p class="alert" id="cut-lock" role="status"></p>
+            <div class="words" id="words"></div>
+          </section>
+
+          <section class="panel" aria-labelledby="h-phrases">
+            <div class="section-head">
+              <h2 id="h-phrases">Legendas por frase</h2>
+              <p class="muted">Apague o texto para voltar ao automático.</p>
+            </div>
+            <p class="alert" id="caption-lock" role="status"></p>
+            <ol class="phrase-list" id="phrases"></ol>
+          </section>
+
+          <div class="grid-2">
+            <section class="panel" aria-labelledby="h-graphics">
+              <h2 id="h-graphics">Gráficos</h2>
+              <div id="graphics"></div>
+            </section>
+            <section class="panel" aria-labelledby="h-notes">
+              <div class="section-head">
+                <h2 id="h-notes">Notas</h2>
+                <p class="muted">“Anotar aqui” usa o ponto atual do vídeo.</p>
+              </div>
+              <ul class="note-list" id="notes"></ul>
+              <p class="muted" id="notes-empty">Nenhuma nota ainda.</p>
+            </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-materiais" role="tabpanel" aria-labelledby="tab-materiais" tabindex="0" hidden>
+      <div class="col">
+        <div class="section-head">
+          <h2>Materiais de apoio</h2>
+          <p class="muted">Fotos, vídeos, ícones e inspirações que os gráficos podem usar.</p>
+        </div>
+        <p class="alert" id="mat-fallback-notice" role="status" hidden>Modo sem pasta: estes materiais não foram salvos no projeto. Ficam só nesta aba até ela fechar; para guardá-los, reabra a página e escolha a pasta do projeto.</p>
+        <div class="drop" id="mat-dropzone">
+          <p><strong>Arraste arquivos para cá</strong></p>
+          <p class="muted">Imagens, vídeos ou ícones SVG</p>
+          <label class="btn" for="mat-file-input" id="mat-file-label"></label>
+          <input type="file" id="mat-file-input" class="sr-only" multiple accept="image/*,video/*,.svg">
+        </div>
+        <div class="panel">
+          <label for="mat-url"><strong>Inspiração por link</strong></label>
+          <div class="url-row">
+            <input type="url" id="mat-url" placeholder="https://..." inputmode="url" autocomplete="off">
+            <button type="button" class="btn" id="mat-url-add"></button>
+          </div>
+          <p class="muted" id="mat-url-error" role="alert"></p>
+        </div>
+        <p class="alert" id="mat-error" role="alert"></p>
+        <p class="empty muted" id="materials-empty">Opcional — nada aqui, o editor segue sem materiais.</p>
+        <ul class="mat-list" id="mat-list"></ul>
+        <div class="fallback-bar" id="mat-fallback-bar" hidden>
+          <button type="button" class="btn" id="download-materiais"></button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- utilitarios puros (expostos para os testes) ---------- */
+  function mergeCuts(cuts) {
+    const iv = cuts.map((c) => [Number(c.start), Number(c.end)]).filter((p) => p[1] > p[0])
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const out = [];
+    for (const [s, e] of iv) {
+      if (out.length && s <= out[out.length - 1][1]) out[out.length - 1][1] = Math.max(out[out.length - 1][1], e);
+      else out.push([s, e]);
+    }
+    return out;
+  }
+  /** Tempo do original -> tempo no video cortado (subtrai os cortes antes de t). */
+  function originalToCutTime(t, cuts) {
+    let removed = 0;
+    for (const [s, e] of mergeCuts(cuts || [])) {
+      if (s >= t) break;
+      removed += Math.min(e, t) - s;
+    }
+    return Math.max(0, t - removed);
+  }
+  /** Tempo no video cortado -> tempo do original (pula os cortes). */
+  function cutToOriginalTime(x, cuts) {
+    let t = Math.max(0, x);
+    for (const [s, e] of mergeCuts(cuts || [])) {
+      if (s <= t) t += e - s; else break;
+    }
+    return t;
+  }
+  function sanitizeName(name) {
+    let base = String(name == null ? '' : name).split(/[\\/]/).pop();
+    base = base.replace(/[\u0000-\u001f\u007f]/g, '-').replace(/[<>:"|?*]/g, '-').replace(/\s+/g, '-');
+    const m = base.match(/^(.*?)(\.[A-Za-z0-9]{1,8})?$/);
+    let stem = (m[1] || '').replace(/-+/g, '-').replace(/^[.\-]+|[.\-]+$/g, '');
+    const ext = m[2] || '';
+    if (!stem) stem = 'arquivo';
+    return stem.slice(0, 80) + ext;
+  }
+  function uniqueName(name, taken) {
+    const set = new Set([...taken].map((n) => String(n).toLowerCase()));
+    if (!set.has(name.toLowerCase())) return name;
+    const m = name.match(/^(.*?)(\.[^.]*)?$/);
+    for (let i = 2; ; i++) {
+      const cand = m[1] + '-' + i + (m[2] || '');
+      if (!set.has(cand.toLowerCase())) return cand;
+    }
+  }
+  function isSafeUrl(s) {
+    try {
+      const u = new URL(String(s).trim());
+      return (u.protocol === 'http:' || u.protocol === 'https:') && !!u.hostname;
+    } catch (e) { return false; }
+  }
+  function fmt(t) {
+    t = Math.max(0, Number(t) || 0);
+    const m = Math.floor(t / 60);
+    const s = t - m * 60;
+    const whole = Math.floor(s);
+    const dec = Math.floor((s - whole) * 10 + 1e-6);
+    return m + ':' + String(whole).padStart(2, '0') + ',' + dec;
+  }
+  const secs = (x) => (Math.round(x * 10) / 10).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' s';
+  const round3 = (x) => Math.round(x * 1000) / 1000;
+
+  /* ---------- armazenamento ---------- */
+  const isNotFound = (e) => e && (e.name === 'NotFoundError' || e.name === 'TypeMismatchError');
+
+  /** Pasta do projeto via File System Access API (grava de verdade). */
+  function makeFsaAdapter(root) {
+    async function locate(path, create) {
+      const parts = path.split('/').filter(Boolean);
+      const name = parts.pop();
+      let dir = root;
+      for (const p of parts) dir = await dir.getDirectoryHandle(p, { create });
+      return [dir, name];
+    }
+    const a = {
+      persistent: true,
+      label: root.name || 'pasta do projeto',
+      async readBlob(path) { const [d, n] = await locate(path, false); return (await d.getFileHandle(n)).getFile(); },
+      async readJson(path) { return JSON.parse(await (await a.readBlob(path)).text()); },
+      async exists(path) {
+        try { await a.readBlob(path); return true; } catch (e) { if (isNotFound(e)) return false; throw e; }
+      },
+      async writeFile(path, blob) {
+        const [d, n] = await locate(path, true);
+        const fh = await d.getFileHandle(n, { create: true });
+        const w = await fh.createWritable();
+        try { await w.write(blob); await w.close(); } catch (e) { try { await w.abort(); } catch (_) { /* ignora */ } throw e; }
+      },
+      async writeJson(path, obj) {
+        await a.writeFile(path, new Blob([JSON.stringify(obj, null, 2) + '\n'], { type: 'application/json' }));
+      },
+      async removeFile(path) { const [d, n] = await locate(path, false); await d.removeEntry(n); },
+    };
+    return a;
+  }
+
+  /** Plano B: arquivos escolhidos a mao; tudo fica em memoria nesta aba. */
+  function makeMemoryAdapter(initial) {
+    const files = new Map(Object.entries(initial || {}));
+    const nf = (p) => new DOMException('não encontrado: ' + p, 'NotFoundError');
+    const a = {
+      persistent: false,
+      label: 'arquivos escolhidos (sem pasta)',
+      files,
+      async readBlob(path) { if (!files.has(path)) throw nf(path); return files.get(path); },
+      async readJson(path) { return JSON.parse(await (await a.readBlob(path)).text()); },
+      async exists(path) { return files.has(path); },
+      async writeFile(path, blob) { files.set(path, blob); },
+      async writeJson(path, obj) {
+        files.set(path, new Blob([JSON.stringify(obj, null, 2) + '\n'], { type: 'application/json' }));
+      },
+      async removeFile(path) { files.delete(path); },
+    };
+    return a;
+  }
+
+  /* ---------- DOM ---------- */
+  const $ = (id) => document.getElementById(id);
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const ICONS = {
+    folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'],
+    reload: ['M20 11a8 8 0 1 0-2.3 5.7', 'M20 4v7h-7'],
+    sun: ['M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8', 'M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'],
+    moon: ['M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z'],
+    note: ['M5 4h14v12l-4 4H5z', 'M15 20v-4h4', 'M9 9h6M9 13h4'],
+    trash: ['M4 7h16', 'M10 11v6M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
+    download: ['M12 4v11', 'M7 10l5 5 5-5', 'M5 20h14'],
+    plus: ['M12 5v14M5 12h14'],
+    link: ['M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1', 'M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1'],
+    image: ['M4 5h16v14H4z', 'M4 16l5-5 4 4 3-3 4 4', 'M15 9a1 1 0 1 0 0.01 0'],
+    film: ['M4 5h16v14H4z', 'M8 5v14M16 5v14M4 9h4M4 15h4M16 9h4M16 15h4'],
+    upload: ['M12 20V9', 'M7 14l5-5 5 5', 'M5 4h14'],
+  };
+  function icon(name) {
+    const s = document.createElementNS(SVGNS, 'svg');
+    s.setAttribute('viewBox', '0 0 24 24');
+    s.setAttribute('class', 'icon');
+    s.setAttribute('aria-hidden', 'true');
+    for (const d of ICONS[name]) {
+      const p = document.createElementNS(SVGNS, 'path');
+      p.setAttribute('d', d);
+      s.appendChild(p);
+    }
+    return s;
+  }
+  /** Cria elemento; strings viram textContent (nunca HTML). */
+  function el(tag, attrs, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === 'class') e.className = v;
+      else if (k === 'text') e.textContent = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? '' : String(v));
+    }
+    for (const k of kids) if (k != null) e.append(typeof k === 'string' ? document.createTextNode(k) : k);
+    return e;
+  }
+  function setButton(btn, iconName, label) {
+    btn.replaceChildren(icon(iconName), document.createTextNode(label));
+  }
+
+  /* ---------- estado ---------- */
+  const KINDS = { foto: 'Foto', video: 'Vídeo', icone: 'Ícone', inspiracao: 'Inspiração' };
+  const CUT_KIND = { silence: 'silêncio', filler: 'muleta', repeat: 'repetição', manual: 'corte manual' };
+  const S = {
+    store: null,
+    review: null,
+    serverActive: [],      // cortes ativos do review.json (o que o preview mostra)
+    removedIds: new Set(), // cortes do review.json que o revisor restaurou
+    added: [],             // cortes novos {start, end}
+    drafts: new Map(),     // idx -> texto do campo de legenda
+    graphics: new Map(),   // id -> keep|drop (estado atual na pagina)
+    notes: [],
+    materials: [],
+    matBlobs: new Map(),   // id -> Blob (modo sem pasta, ou cache de miniatura)
+    lastSaved: null,
+    videoUrl: null,
+    thumbUrls: [],
+  };
+
+  function decisions() {
+    const r = S.review;
+    const order = r.cuts.filter((c) => c.active).map((c) => c.id);
+    // Cada edicao leva o texto automatico que o revisor viu (base_text): se os
+    // cortes mudarem antes do "aplicar revisao", o apply recusa em vez de trocar
+    // outra frase.
+    const caption_edits = {};
+    for (const p of r.phrases) {
+      if (!S.drafts.has(p.idx)) continue;
+      const t = S.drafts.get(p.idx).trim();
+      if (t === '') { if (p.edited) caption_edits[String(p.idx)] = { text: '', base_text: p.base_text }; }
+      else if (t !== p.text) caption_edits[String(p.idx)] = { text: t, base_text: p.base_text };
+    }
+    const graphics = {};
+    for (const g of graphicItems()) {
+      const cur = S.graphics.get(g.id);
+      if (cur && cur !== g.state) graphics[g.id] = cur;
+    }
+    return {
+      cuts_removed: order.filter((id) => S.removedIds.has(id)),
+      cuts_added: S.added.map((c) => ({ start: c.start, end: c.end })).sort((a, b) => a.start - b.start || a.end - b.end),
+      caption_edits,
+      graphics,
+      notes: S.notes.filter((n) => n.text.trim()).map((n) => ({ t: n.t, text: n.text.trim() })),
+    };
+  }
+  const cutsDirty = () => S.removedIds.size > 0 || S.added.length > 0;
+  const captionsDirty = () => Object.keys(decisions().caption_edits).length > 0;
+
+  function activeCuts() {
+    return S.serverActive.filter((c) => !S.removedIds.has(c.id)).concat(S.added.map((c) => ({ ...c, kind: 'manual', pending: true })));
+  }
+  const mid = (w) => (w.start + w.end) / 2;
+  const inside = (c, t) => c.start <= t && t <= c.end;
+
+  function graphicItems() {
+    // cards de graficos.json (titulo, instante) quando houver; senao as decisoes {id: keep|drop}
+    const cards = S.review && Array.isArray(S.review.cards) && S.review.cards.length ? S.review.cards : null;
+    const g = cards || (S.review && S.review.graphics);
+    if (Array.isArray(g)) {
+      return g.filter((x) => x && typeof x.id === 'string').map((x) => ({
+        id: x.id, label: String(x.title || x.label || x.text || x.id),
+        at: typeof x.at === 'number' ? x.at : null,
+        state: x.state === 'drop' || x.decision === 'drop' ? 'drop' : 'keep' }));
+    }
+    if (g && typeof g === 'object') {
+      return Object.keys(g).map((id) => ({ id, label: 'Gráfico ' + id, at: null, state: g[id] === 'drop' ? 'drop' : 'keep' }));
+    }
+    return [];
+  }
+
+  /* ---------- carregar ---------- */
+  function validReview(r) {
+    return r && typeof r === 'object' && typeof r.duration === 'number' && Array.isArray(r.words)
+      && Array.isArray(r.cuts) && Array.isArray(r.phrases);
+  }
+
+  function setReview(r, restore) {
+    const prev = S.review;
+    S.review = r;
+    S.serverActive = r.cuts.filter((c) => c.active);
+    const prevNotes = S.notes;
+    // Pendencias filtradas contra o review.json novo: depois de "aplicar revisao" +
+    // build, tudo o que ja entrou vira no-op e some sozinho.
+    const src = restore || { cuts_removed: [...S.removedIds], cuts_added: S.added,
+      // rascunhos presos ao texto automatico da versao anterior: frase que mudou nao herda
+      caption_edits: Object.fromEntries([...S.drafts].map(([k, v]) => [k, {
+        text: v, base_text: prev && prev.phrases[k] ? prev.phrases[k].base_text : null }])),
+      graphics: Object.fromEntries(S.graphics) };
+    const activeIds = new Set(S.serverActive.map((c) => c.id));
+    S.removedIds = new Set((Array.isArray(src.cuts_removed) ? src.cuts_removed : []).filter((id) => activeIds.has(id)));
+    S.added = (Array.isArray(src.cuts_added) ? src.cuts_added : [])
+      .filter((c) => c && typeof c.start === 'number' && typeof c.end === 'number' && 0 <= c.start && c.start < c.end && c.end <= r.duration)
+      .filter((c) => !S.serverActive.some((a) => a.start <= c.start && c.end <= a.end))
+      .map((c) => ({ start: c.start, end: c.end }));
+    S.drafts = new Map();
+    const ce = src.caption_edits && typeof src.caption_edits === 'object' ? src.caption_edits : {};
+    for (const p of r.phrases) {
+      let v = ce[p.idx] !== undefined ? ce[p.idx] : ce[String(p.idx)];
+      // {text, base_text} (pagina) ou texto (plano B); rascunho feito sobre outro
+      // texto automatico da frase e descartado
+      if (v && typeof v === 'object') v = v.base_text === p.base_text ? v.text : undefined;
+      if (typeof v !== 'string') continue;
+      const t = v.trim();
+      if ((t === '' && p.edited) || (t !== '' && t !== p.text)) S.drafts.set(p.idx, t === '' ? '' : v);
+    }
+    S.graphics = new Map();
+    const gsrc = src.graphics && typeof src.graphics === 'object' ? src.graphics : {};
+    for (const g of graphicItems()) S.graphics.set(g.id, gsrc[g.id] === 'drop' || gsrc[g.id] === 'keep' ? gsrc[g.id] : g.state);
+    const serverNotes = Array.isArray(r.notes) ? r.notes : [];
+    let notes = serverNotes;
+    if (restore && Array.isArray(restore.notes)) notes = restore.notes;
+    else if (!restore && prevNotes.length) notes = prevNotes;
+    S.notes = notes.filter((n) => n && typeof n.t === 'number' && typeof n.text === 'string')
+      .map((n) => ({ t: n.t, text: n.text, key: Math.random().toString(36).slice(2) }));
+  }
+
+  async function openFolder() {
+    $('start-error').textContent = '';
+    let root;
+    try {
+      root = await window.showDirectoryPicker({ mode: 'readwrite', id: 'reel-projeto' });
+      if (root.requestPermission && (await root.requestPermission({ mode: 'readwrite' })) !== 'granted') {
+        throw new DOMException('sem permissão de escrita', 'NotAllowedError');
+      }
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      $('start-error').textContent = 'Não consegui acesso de escrita à pasta (' + (e && e.message || e) + '). Use “Escolher os arquivos” abaixo.';
+      $('fallback').open = true;
+      return;
+    }
+    const store = makeFsaAdapter(root);
+    try {
+      if (!(await store.exists('review.json'))) {
+        $('start-error').textContent = 'Não achei review.json em “' + store.label + '”. Escolha a pasta projects/<reel>/ depois que o Claude rodar review_apply.py build.';
+        return;
+      }
+      await start(store);
+    } catch (e) {
+      $('start-error').textContent = 'Não consegui ler o projeto: ' + (e && e.message || e);
+    }
+  }
+
+  async function start(store) {
+    S.store = store;
+    const r = await store.readJson('review.json');
+    if (!validReview(r)) throw new Error('review.json não tem o formato esperado (duration, words, cuts, phrases).');
+    let restore = null;
+    if (store.persistent && await store.exists('decisions.json')) {
+      try { restore = await store.readJson('decisions.json'); } catch (e) { restore = null; }
+    }
+    S.notes = [];
+    setReview(r, restore || { notes: r.notes });
+    S.lastSaved = restore ? JSON.stringify(restore) : JSON.stringify(decisions());
+    await loadMaterials();
+    $('start').hidden = true;
+    $('app').hidden = false;
+    $('project-name').textContent = store.label;
+    $('fallback-bar').hidden = store.persistent;
+    $('mat-fallback-bar').hidden = store.persistent;
+    $('mat-fallback-notice').hidden = store.persistent;
+    $('video-picker').hidden = store.persistent;
+    if (!store.persistent) {
+      $('apply-hint').textContent = 'Baixe o decisions.json, coloque-o em projects/<reel>/ e peça ao Claude: “aplicar revisão” — ele roda review_apply.py e gera um novo preview.';
+      setStatus('Sem pasta: nada é salvo no projeto até você baixar o arquivo.');
+    }
+    await loadVideo();
+    renderAll();
+    document.body.dataset.state = 'ready';
+    if (JSON.stringify(decisions()) !== S.lastSaved) scheduleSave();
+  }
+
+  async function reloadReview() {
+    if (!S.store.persistent) { $('file-review').click(); return; }
+    try {
+      const r = await S.store.readJson('review.json');
+      if (!validReview(r)) throw new Error('formato inesperado');
+      setReview(r, null);
+      await loadVideo();
+      renderAll();
+      setStatus('review.json recarregado às ' + clock());
+      if (JSON.stringify(decisions()) !== S.lastSaved) scheduleSave();
+    } catch (e) {
+      setStatus('Não consegui recarregar review.json: ' + (e && e.message || e));
+    }
+  }
+
+  async function loadVideo() {
+    const v = $('video');
+    $('video-msg').textContent = '';
+    if (!S.store.persistent) {
+      if (!S.store.files.has('saida/preview.mp4')) $('video-msg').textContent = 'Escolha o preview para assistir junto. A revisão por palavras funciona sem ele.';
+    }
+    let blob = null;
+    try {
+      if (await S.store.exists('saida/preview.mp4')) blob = await S.store.readBlob('saida/preview.mp4');
+    } catch (e) { blob = null; }
+    if (!blob) {
+      if (S.store.persistent) {
+        $('video-msg').textContent = 'saida/preview.mp4 não encontrado. Peça ao Claude “montar preview”; a revisão por palavras funciona sem ele.';
+        $('video-picker').hidden = false;
+      }
+      return;
+    }
+    if (S.videoUrl) URL.revokeObjectURL(S.videoUrl);
+    S.videoUrl = URL.createObjectURL(blob);
+    v.src = S.videoUrl;
+  }
+
+  /* ---------- salvar ---------- */
+  let saveTimer = null;
+  let saveChain = Promise.resolve();
+  const clock = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  function setStatus(t) { $('save-status').textContent = t; }
+
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 400);
+  }
+  function saveNow() {
+    const d = decisions();
+    const json = JSON.stringify(d);
+    if (json === S.lastSaved) return saveChain;
+    S.lastSaved = json;
+    if (!S.store.persistent) {
+      setStatus('Mudanças só nesta aba: baixe o decisions.json.');
+      return saveChain;
+    }
+    setStatus('Salvando…');
+    saveChain = saveChain.then(() => S.store.writeJson('decisions.json', d))
+      .then(() => setStatus('Salvo às ' + clock()))
+      .catch((e) => { S.lastSaved = null; setStatus('Não consegui salvar decisions.json: ' + (e && e.message || e)); });
+    return saveChain;
+  }
+  function changed() { renderDynamic(); scheduleSave(); }
+
+  function download(name, obj) {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 2) + '\n'], { type: 'application/json' }));
+    const a = el('a', { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  /* ---------- render: revisao ---------- */
+  function renderAll() {
+    renderWords();
+    renderPhrases();
+    renderGraphics();
+    renderNotes();
+    renderWarnings();
+    renderMaterials();
+    renderDynamic();
+  }
+
+  function renderWords() {
+    const box = $('words');
+    const r = S.review;
+    const items = [];
+    for (const w of r.words) items.push({ t: w.start, kind: 'word', w });
+    // cortes que nao cobrem palavra nenhuma (silencios) viram marcadores clicaveis
+    for (const c of r.cuts) {
+      if (!r.words.some((w) => inside(c, mid(w)))) items.push({ t: c.start, kind: 'gap', c });
+    }
+    items.sort((a, b) => a.t - b.t || (a.kind === 'gap' ? -1 : 1));
+    box.replaceChildren(...items.map((it) => it.kind === 'word'
+      ? el('button', { type: 'button', class: 'word', 'data-i': it.w.i, onclick: () => clickWord(it.w), text: it.w.w })
+      : el('button', { type: 'button', class: 'gap', 'data-cut': it.c.id, onclick: () => clickGap(it.c),
+          text: (CUT_KIND[it.c.kind] || 'corte') + ' ' + secs(it.c.end - it.c.start) })));
+  }
+
+  function lockedCuts() {
+    if (!captionsDirty()) return false;
+    $('cut-lock').textContent = 'Há legendas editadas ainda não aplicadas. Peça ao Claude “aplicar revisão” antes de mexer nos cortes: os cortes mudam a numeração das frases.';
+    return true;
+  }
+
+  function clickWord(w) {
+    const m = mid(w);
+    if (!S.serverActive.some((c) => inside(c, m))) {
+      const v = $('video');
+      try { v.currentTime = originalToCutTime(w.start, S.serverActive); } catch (e) { /* sem video */ }
+    }
+    if (lockedCuts()) return;
+    const covering = activeCuts().filter((c) => inside(c, m));
+    if (covering.length) {
+      for (const c of covering) {
+        if (c.pending) S.added = S.added.filter((a) => !(a.start === c.start && a.end === c.end));
+        else S.removedIds.add(c.id);
+      }
+    } else {
+      const restored = S.serverActive.filter((c) => S.removedIds.has(c.id) && inside(c, m));
+      if (restored.length) restored.forEach((c) => S.removedIds.delete(c.id));
+      else S.added.push({ start: w.start, end: w.end });
+    }
+    changed();
+  }
+
+  function clickGap(c) {
+    if (lockedCuts()) return;
+    if (c.active) {
+      if (S.removedIds.has(c.id)) S.removedIds.delete(c.id); else S.removedIds.add(c.id);
+    } else {
+      const i = S.added.findIndex((a) => a.start === c.start && a.end === c.end);
+      if (i >= 0) S.added.splice(i, 1); else S.added.push({ start: c.start, end: c.end });
+    }
+    changed();
+  }
+
+  function renderPhrases() {
+    const list = $('phrases');
+    list.replaceChildren(...S.review.phrases.map((p) => {
+      const ta = el('textarea', { class: 'phrase-text', id: 'phrase-' + p.idx, rows: 2, 'data-idx': p.idx,
+        'aria-label': 'Legenda da frase ' + (p.idx + 1) });
+      ta.value = S.drafts.has(p.idx) ? S.drafts.get(p.idx) : p.text;
+      ta.addEventListener('input', () => { S.drafts.set(p.idx, ta.value); changed(); });
+      ta.addEventListener('blur', () => {
+        if (ta.value.trim() === '') { ta.value = p.base_text; S.drafts.set(p.idx, p.base_text); changed(); }
+      });
+      const time = el('button', { type: 'button', class: 'btn ghost phrase-time', onclick: () => seekCut(p.start),
+        'aria-label': 'Ir para ' + fmt(p.start), text: fmt(p.start) + '–' + fmt(p.end) });
+      return el('li', { class: 'phrase', 'data-idx': p.idx },
+        el('div', { class: 'phrase-head' }, el('strong', { text: 'Frase ' + (p.idx + 1) }), time,
+          el('span', { class: 'tag phrase-tag' })),
+        ta);
+    }));
+  }
+
+  function seekCut(t) { try { $('video').currentTime = t; } catch (e) { /* sem video */ } }
+
+  function renderGraphics() {
+    const box = $('graphics');
+    const items = graphicItems();
+    if (!items.length) {
+      box.replaceChildren(el('p', { class: 'muted', text: 'Nenhum gráfico nesta versão.' }));
+      return;
+    }
+    box.replaceChildren(el('ul', { class: 'graphic-list' }, ...items.map((g) => {
+      const sw = el('button', { type: 'button', role: 'switch', class: 'switch graphic-toggle', 'data-id': g.id,
+        onclick: () => { S.graphics.set(g.id, S.graphics.get(g.id) === 'drop' ? 'keep' : 'drop'); changed(); } },
+        el('span', { class: 'track', 'aria-hidden': 'true' }), el('span', { class: 'switch-label' }));
+      return el('li', { class: 'graphic' },
+        el('span', {}, el('strong', { text: g.label }), g.at != null ? el('span', { class: 'muted', text: ' · ' + fmt(g.at) }) : null),
+        sw);
+    })));
+  }
+
+  function renderNotes() {
+    const list = $('notes');
+    const sorted = S.notes.slice().sort((a, b) => a.t - b.t);
+    list.replaceChildren(...sorted.map((n) => {
+      const ta = el('textarea', { class: 'note-text', id: 'note-' + n.key, rows: 2, 'aria-label': 'Nota em ' + fmt(originalToCutTime(n.t, S.serverActive)) });
+      ta.value = n.text;
+      ta.addEventListener('input', () => { n.text = ta.value; scheduleSave(); });
+      const del = el('button', { type: 'button', class: 'btn ghost icon-only note-delete', 'aria-label': 'Apagar nota',
+        onclick: () => { S.notes = S.notes.filter((x) => x !== n); renderNotes(); scheduleSave(); } }, icon('trash'));
+      const pt = originalToCutTime(n.t, S.serverActive);
+      const time = el('button', { type: 'button', class: 'btn ghost note-time', onclick: () => seekCut(pt),
+        title: 'No original: ' + fmt(n.t), text: fmt(pt) });
+      return el('li', { class: 'note' }, time, ta, del);
+    }));
+    $('notes-empty').hidden = S.notes.length > 0;
+  }
+
+  function addNote() {
+    const v = $('video');
+    const n = { t: round3(cutToOriginalTime(Number(v.currentTime) || 0, S.serverActive)), text: '', key: Math.random().toString(36).slice(2) };
+    S.notes.push(n);
+    renderNotes();
+    const ta = $('note-' + n.key);
+    if (ta) ta.focus();
+  }
+
+  function renderWarnings() {
+    const r = S.review;
+    const items = [];
+    for (const p of r.phrases) {
+      if (p.stale) items.push('Frase ' + (p.idx + 1) + ': edição de legenda antiga, o texto automático mudou. A legenda voltou ao automático: “' + p.text + '”. Reescreva se quiser.');
+    }
+    for (const e of Array.isArray(r.orphan_edits) ? r.orphan_edits : []) {
+      items.push('Edição de legenda antiga, o texto automático mudou: “' + String(e.text) + '” era da frase ' + (Number(e.idx) + 1) + ', que não existe mais com os cortes atuais.');
+    }
+    $('warn-list').replaceChildren(...items.map((t) => el('li', { text: t })));
+    $('warnings').hidden = items.length === 0;
+  }
+
+  function renderDynamic() {
+    const act = activeCuts();
+    // palavras
+    for (const b of $('words').children) {
+      if (b.classList.contains('word')) {
+        const w = S.review.words[Number(b.dataset.i)];
+        const m = mid(w);
+        const isCut = act.some((c) => inside(c, m));
+        const wasCut = S.serverActive.some((c) => inside(c, m));
+        b.dataset.state = isCut ? 'cut' : 'kept';
+        b.dataset.pending = String(isCut !== wasCut);
+        b.setAttribute('aria-pressed', String(isCut));
+        b.title = (isCut ? 'Cortada' : 'Mantida') + ' · ' + fmt(w.start) + ' do original · toque para ' + (isCut ? 'restaurar' : 'cortar');
+      } else {
+        const c = S.review.cuts.find((x) => x.id === b.dataset.cut);
+        const isCut = c.active ? !S.removedIds.has(c.id) : S.added.some((a) => a.start === c.start && a.end === c.end);
+        b.dataset.state = isCut ? 'cut' : 'kept';
+        b.dataset.pending = String(isCut !== !!c.active);
+        b.setAttribute('aria-pressed', String(isCut));
+        b.title = (isCut ? 'Trecho cortado' : 'Trecho mantido') + ' (' + c.id + ', ' + fmt(c.start) + '–' + fmt(c.end) + ') · toque para ' + (isCut ? 'restaurar' : 'cortar');
+      }
+    }
+    if (!captionsDirty()) $('cut-lock').textContent = '';
+    // legendas
+    const lockCaptions = cutsDirty();
+    $('caption-lock').textContent = lockCaptions
+      ? 'Há cortes ainda não aplicados. Peça ao Claude “aplicar revisão” antes de editar legendas: os cortes mudam a numeração das frases.' : '';
+    const d = decisions();
+    for (const li of $('phrases').children) {
+      const idx = Number(li.dataset.idx);
+      const p = S.review.phrases[idx];
+      const pendingEdit = Object.prototype.hasOwnProperty.call(d.caption_edits, String(idx));
+      const pendingText = pendingEdit ? d.caption_edits[String(idx)].text : null;
+      const edited = pendingEdit ? pendingText !== '' && pendingText !== p.base_text : p.edited;
+      li.dataset.edited = String(!!edited);
+      li.querySelector('.phrase-tag').textContent = edited ? (pendingEdit ? 'editada · não aplicada' : 'editada') : (pendingEdit ? 'volta ao automático' : '');
+      li.querySelector('textarea').readOnly = lockCaptions;
+    }
+    // graficos
+    for (const sw of $('graphics').querySelectorAll('.graphic-toggle')) {
+      const keep = S.graphics.get(sw.dataset.id) !== 'drop';
+      sw.setAttribute('aria-checked', String(keep));
+      sw.querySelector('.switch-label').textContent = keep ? 'Manter' : 'Descartar';
+      sw.setAttribute('aria-label', (keep ? 'Mantido: ' : 'Descartado: ') + sw.dataset.id);
+    }
+    // duracao
+    const r = S.review;
+    const union = mergeCuts(act).reduce((s, [a, b]) => s + Math.max(0, Math.min(b, r.duration) - Math.max(a, 0)), 0);
+    const kept = cutsDirty() ? Math.max(0, r.duration - union) : Number(r.kept_duration);
+    $('kept-duration').textContent = secs(kept);
+    $('kept-note').textContent = cutsDirty() ? '(prevista, com as mudanças pendentes)' : '';
+    const chip = $('format-chip');
+    let label = 'Fora das faixas: rápido 12–15 s, aprofundado 30–45 s';
+    let fit = false;
+    if (kept >= 12 && kept <= 15) { label = 'Reel rápido (12–15 s)'; fit = true; }
+    else if (kept >= 30 && kept <= 45) { label = 'Reel aprofundado (30–45 s)'; fit = true; }
+    chip.textContent = label;
+    chip.classList.toggle('fit', fit);
+    const n = Object.keys(d.caption_edits).length + d.cuts_added.length + d.cuts_removed.length + Object.keys(d.graphics).length;
+    $('tab-revisao').setAttribute('aria-description', n ? n + ' mudanças pendentes' : '');
+  }
+
+  /* ---------- materiais ---------- */
+  function validItem(it) {
+    if (!it || typeof it !== 'object' || typeof it.id !== 'string' || !(it.kind in KINDS)) return false;
+    if (typeof it.file === 'string') return it.file === sanitizeName(it.file);
+    if (typeof it.url === 'string') return it.kind === 'inspiracao' && isSafeUrl(it.url);
+    return false;
+  }
+  async function loadMaterials() {
+    S.materials = [];
+    $('mat-error').textContent = '';
+    if (!(await S.store.exists('materiais.json'))) return;
+    try {
+      const doc = await S.store.readJson('materiais.json');
+      const items = doc && Array.isArray(doc.items) ? doc.items : [];
+      const ok = items.filter(validItem);
+      S.materials = ok.map((it) => ({ id: it.id, kind: it.kind, name: String(it.name || it.file || it.url),
+        ...(it.file ? { file: it.file } : { url: it.url }), note: typeof it.note === 'string' ? it.note : '' }));
+      if (ok.length !== items.length || !(doc && Array.isArray(doc.items))) {
+        $('mat-error').textContent = 'Alguns itens de materiais.json estavam incompletos e foram ignorados.';
+      }
+    } catch (e) {
+      $('mat-error').textContent = 'materiais.json ilegível; a lista começa vazia (o arquivo só é regravado se você mudar algo).';
+    }
+  }
+  function materialsDoc() {
+    return { items: S.materials.map((m) => ({ id: m.id, kind: m.kind, name: m.name,
+      ...(m.file ? { file: m.file } : { url: m.url }), note: m.note || '' })) };
+  }
+  let matTimer = null;
+  let matChain = Promise.resolve();
+  function saveMaterials(delay) {
+    clearTimeout(matTimer);
+    const run = () => {
+      if (!S.store.persistent) return;
+      const doc = materialsDoc();
+      matChain = matChain.then(() => S.store.writeJson('materiais.json', doc))
+        .then(() => setStatus('Salvo às ' + clock()))
+        .catch((e) => { $('mat-error').textContent = 'Não consegui salvar materiais.json: ' + (e && e.message || e); });
+    };
+    if (delay) matTimer = setTimeout(run, delay); else run();
+  }
+  function nextMatId() {
+    let top = 0;
+    for (const m of S.materials) { const k = /^m(\d+)$/.exec(m.id); if (k) top = Math.max(top, Number(k[1])); }
+    return 'm' + (top + 1);
+  }
+  function kindFor(file) {
+    const t = (file.type || '').toLowerCase();
+    const n = (file.name || '').toLowerCase();
+    if (t === 'image/svg+xml' || n.endsWith('.svg')) return 'icone';
+    if (t.startsWith('image/')) return 'foto';
+    if (t.startsWith('video/')) return 'video';
+    return null;
+  }
+  async function addFiles(fileList) {
+    $('mat-error').textContent = '';
+    const rejected = [];
+    for (const f of Array.from(fileList || [])) {
+      const kind = kindFor(f);
+      if (!kind) { rejected.push(f.name); continue; }
+      const taken = S.materials.filter((m) => m.file).map((m) => m.file);
+      let name = uniqueName(sanitizeName(f.name), taken);
+      if (S.store.persistent) {
+        while (await S.store.exists('materiais/' + name)) name = uniqueName(name, taken.concat([name]));
+      }
+      const item = { id: nextMatId(), kind, name: String(f.name).split(/[\\/]/).pop() || name, file: name, note: '' };
+      try {
+        await S.store.writeFile('materiais/' + name, f);
+      } catch (e) {
+        $('mat-error').textContent = 'Não consegui gravar materiais/' + name + ': ' + (e && e.message || e);
+        continue;
+      }
+      S.matBlobs.set(item.id, f);
+      S.materials.push(item);
+      renderMaterials();
+      saveMaterials(0);
+    }
+    if (rejected.length) $('mat-error').textContent = 'Formato não aceito: ' + rejected.join(', ') + '. Use imagens, vídeos ou SVG.';
+  }
+  function addUrl() {
+    const input = $('mat-url');
+    const v = input.value.trim();
+    if (!isSafeUrl(v)) {
+      $('mat-url-error').textContent = 'Use um link que comece com http:// ou https://.';
+      return;
+    }
+    $('mat-url-error').textContent = '';
+    S.materials.push({ id: nextMatId(), kind: 'inspiracao', name: v, url: v, note: '' });
+    input.value = '';
+    renderMaterials();
+    saveMaterials(0);
+  }
+  async function removeMaterial(m) {
+    S.materials = S.materials.filter((x) => x !== m);
+    S.matBlobs.delete(m.id);
+    if (m.file && !S.materials.some((x) => x.file === m.file)) {
+      try { await S.store.removeFile('materiais/' + m.file); } catch (e) { /* ja nao existe */ }
+    }
+    renderMaterials();
+    saveMaterials(0);
+  }
+  async function thumbFor(m, box) {
+    if (m.url) { box.replaceChildren(icon('link')); return; }
+    let blob = S.matBlobs.get(m.id);
+    if (!blob) {
+      try { blob = await S.store.readBlob('materiais/' + m.file); S.matBlobs.set(m.id, blob); } catch (e) { blob = null; }
+    }
+    if (!blob) { box.replaceChildren(icon(m.kind === 'video' ? 'film' : 'image')); return; }
+    const url = URL.createObjectURL(blob);
+    S.thumbUrls.push(url);
+    if (m.kind === 'video') box.replaceChildren(el('video', { src: url, muted: true, preload: 'metadata', 'aria-hidden': 'true' }));
+    else box.replaceChildren(el('img', { src: url, alt: '' }));
+  }
+  function renderMaterials() {
+    for (const u of S.thumbUrls) URL.revokeObjectURL(u);
+    S.thumbUrls = [];
+    const list = $('mat-list');
+    list.replaceChildren(...S.materials.map((m) => {
+      const thumb = el('div', { class: 'thumb', 'aria-hidden': 'true' });
+      thumbFor(m, thumb);
+      const head = m.url
+        ? el('a', { class: 'mat-link', href: m.url, target: '_blank', rel: 'noopener noreferrer', text: m.url })
+        : el('span', { class: 'mat-name', text: m.name });
+      const sub = m.url
+        ? (m.name && m.name !== m.url ? el('span', { class: 'mat-name', text: m.name }) : null)
+        : el('span', { class: 'muted', text: 'materiais/' + m.file });
+      const sel = el('select', { class: 'mat-kind', id: 'mat-kind-' + m.id, 'aria-label': 'Tipo de ' + m.name, disabled: !!m.url });
+      for (const [k, label] of Object.entries(KINDS)) {
+        const o = el('option', { value: k, text: label });
+        if (k === m.kind) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.addEventListener('change', () => { m.kind = sel.value; saveMaterials(0); });
+      const note = el('input', { type: 'text', class: 'mat-note', id: 'mat-note-' + m.id, placeholder: 'Nota (opcional)',
+        'aria-label': 'Nota sobre ' + m.name });
+      note.value = m.note || '';
+      note.addEventListener('input', () => { m.note = note.value; saveMaterials(400); });
+      const rm = el('button', { type: 'button', class: 'btn ghost icon-only mat-remove', 'aria-label': 'Remover ' + m.name,
+        onclick: () => removeMaterial(m) }, icon('trash'));
+      return el('li', { class: 'mat-item', 'data-id': m.id }, thumb,
+        el('div', { class: 'mat-body' }, head, sub,
+          el('div', { class: 'mat-fields' }, sel, note)),
+        rm);
+    }));
+    $('materials-empty').hidden = S.materials.length > 0;
+    $('mat-count').textContent = S.materials.length ? ' · ' + S.materials.length : '';
+  }
+
+  /* ---------- abas ---------- */
+  const TABS = ['revisao', 'materiais'];
+  function selectTab(name, focus) {
+    for (const t of TABS) {
+      const on = t === name;
+      const tab = $('tab-' + t);
+      tab.setAttribute('aria-selected', String(on));
+      tab.tabIndex = on ? 0 : -1;
+      $('panel-' + t).hidden = !on;
+      if (on && focus) tab.focus();
+    }
+  }
+  function tabKeys(e) {
+    const i = TABS.indexOf(e.currentTarget.id.replace('tab-', ''));
+    let j = null;
+    if (e.key === 'ArrowRight') j = (i + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') j = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = TABS.length - 1;
+    if (j === null) return;
+    e.preventDefault();
+    selectTab(TABS[j], true);
+  }
+
+  /* ---------- tema ---------- */
+  function effectiveTheme() {
+    const t = document.documentElement.getAttribute('data-theme');
+    if (t) return t;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  function paintThemeButton() {
+    const dark = effectiveTheme() === 'dark';
+    $('theme-toggle').replaceChildren(icon(dark ? 'sun' : 'moon'));
+    $('theme-toggle').setAttribute('aria-label', dark ? 'Usar tema claro' : 'Usar tema escuro');
+  }
+  function toggleTheme() {
+    const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem('revisao-reel-tema', next); } catch (e) { /* sem storage */ }
+    paintThemeButton();
+  }
+
+  /* ---------- liga tudo ---------- */
+  function init() {
+    try {
+      const t = localStorage.getItem('revisao-reel-tema');
+      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { /* sem storage */ }
+    paintThemeButton();
+    if (window.matchMedia) window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', paintThemeButton);
+    $('theme-toggle').addEventListener('click', toggleTheme);
+
+    setButton($('open-folder'), 'folder', 'Abrir pasta do projeto');
+    setButton($('reload'), 'reload', 'Recarregar review.json');
+    setButton($('add-note'), 'note', 'Anotar aqui');
+    setButton($('download-decisions'), 'download', 'Baixar decisions.json');
+    setButton($('download-materiais'), 'download', 'Baixar materiais.json');
+    setButton($('mat-url-add'), 'plus', 'Adicionar link');
+    $('mat-file-label').replaceChildren(icon('upload'), document.createTextNode('Escolher arquivos'));
+
+    const hasFsa = typeof window.showDirectoryPicker === 'function';
+    if (hasFsa) {
+      $('open-folder').addEventListener('click', openFolder);
+      $('fallback-why').textContent = 'Se o navegador negar a pasta, escolha o review.json aqui; depois, no player, escolha o vídeo. Nada é gravado na pasta: no fim, baixe o decisions.json e coloque-o em projects/<reel>/.';
+    } else {
+      $('open-folder').hidden = true;
+      $('fallback').open = true;
+    }
+
+    $('file-review').addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      try {
+        if (S.store && !S.store.persistent) {
+          S.store.files.set('review.json', f);
+          const r = JSON.parse(await f.text());
+          if (!validReview(r)) throw new Error('formato inesperado');
+          setReview(r, null);
+          renderAll();
+          setStatus('review.json recarregado às ' + clock());
+        } else {
+          await start(makeMemoryAdapter({ 'review.json': f }));
+        }
+      } catch (err) {
+        $('start-error').textContent = 'Esse arquivo não parece um review.json: ' + (err && err.message || err);
+      }
+      e.target.value = '';
+    });
+    $('file-video').addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f || !S.store) return;
+      if (S.store.persistent) {
+        if (S.videoUrl) URL.revokeObjectURL(S.videoUrl);
+        S.videoUrl = URL.createObjectURL(f);
+        $('video').src = S.videoUrl;
+        $('video-msg').textContent = '';
+      } else {
+        S.store.files.set('saida/preview.mp4', f);
+        await loadVideo();
+      }
+    });
+    $('video').addEventListener('error', () => {
+      if (!$('video').getAttribute('src')) return;
+      $('video-msg').textContent = 'Este navegador não conseguiu tocar o preview. Abra saida/preview.mp4 no player do sistema; a revisão por palavras funciona mesmo assim.';
+    });
+    $('video').addEventListener('loadedmetadata', () => {
+      const v = $('video');
+      if (S.review && isFinite(v.duration) && Math.abs(v.duration - Number(S.review.kept_duration)) > 0.35) {
+        $('video-msg').textContent = 'Este preview tem ' + secs(v.duration) + ', mas os cortes atuais dão ' + secs(Number(S.review.kept_duration)) + '. Ele parece de outra versão: peça ao Claude um novo preview.';
+      }
+    });
+
+    $('reload').addEventListener('click', reloadReview);
+    $('add-note').addEventListener('click', addNote);
+    $('download-decisions').addEventListener('click', () => download('decisions.json', decisions()));
+    $('download-materiais').addEventListener('click', () => download('materiais.json', materialsDoc()));
+
+    for (const t of TABS) {
+      $('tab-' + t).addEventListener('click', () => selectTab(t, false));
+      $('tab-' + t).addEventListener('keydown', tabKeys);
+    }
+
+    $('mat-file-input').addEventListener('change', async (e) => { await addFiles(e.target.files); e.target.value = ''; });
+    const dz = $('mat-dropzone');
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+    dz.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dz.classList.remove('over');
+      if (S.store && e.dataTransfer) addFiles(e.dataTransfer.files);
+    });
+    $('mat-url-add').addEventListener('click', addUrl);
+    $('mat-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addUrl(); } });
+    // soltar arquivo fora da area nao pode trocar a pagina pelo arquivo
+    document.addEventListener('dragover', (e) => e.preventDefault());
+    document.addEventListener('drop', (e) => e.preventDefault());
+    window.addEventListener('beforeunload', () => { if (saveTimer) saveNow(); });
+  }
+
+  window.ReviewApp = {
+    originalToCutTime, cutToOriginalTime, mergeCuts, sanitizeName, uniqueName, isSafeUrl, fmt,
+    makeFsaAdapter, makeMemoryAdapter, decisions: () => (S.review ? decisions() : null), state: S,
+  };
+  init();
+})();
+</script>
+</body>
+</html>

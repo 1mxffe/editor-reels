@@ -1,0 +1,106 @@
+"""Helpers compartilhados pelos scripts do editor de Reel.
+
+Codigos de saida de todas as CLIs: 0 ok; 1 para todo erro, inclusive erro de uso
+(``UsageParser``).
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import math
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+from pathlib import Path
+from typing import Iterator, NoReturn
+
+
+def is_num(x) -> bool:
+    """Numero de verdade: int/float finito, nao bool (o json do Python aceita NaN e Infinity)."""
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def same_file(a: Path, b: Path) -> bool:
+    """``a`` e ``b`` sao (ou apontam, via link, para) o mesmo arquivo."""
+    a, b = Path(a), Path(b)
+    try:
+        if a.exists() and b.exists():
+            return os.path.samefile(a, b)
+        return a.resolve() == b.resolve()
+    except OSError:
+        return False
+
+
+def fail(msg: str, code: int = 1) -> NoReturn:
+    print(f"erro: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+class UsageParser(argparse.ArgumentParser):
+    """argparse com erro de uso saindo com 1 (``erro: ...``), como os outros erros.
+
+    Subcomandos (``add_subparsers``) herdam a classe."""
+
+    def error(self, message: str):
+        self.print_usage(sys.stderr)
+        fail(message)
+
+
+_UMASK_LOCK = threading.Lock()
+
+
+def _umask() -> int:
+    """umask atual (so da para ler trocando; o lock evita corrida entre threads)."""
+    with _UMASK_LOCK:
+        old = os.umask(0)
+        os.umask(old)
+    return old
+
+
+@contextlib.contextmanager
+def atomic_write(path: Path, *, suffix: str = "") -> Iterator[Path]:
+    """Caminho temporario para gravar ``path`` de forma atomica.
+
+    O temporario (``.<nome>-XXXXXX.tmp<suffix>``) e criado com O_EXCL no MESMO
+    diretorio (nao segue link plantado, nao colide com outra execucao), com o
+    modo de um arquivo normal (``0666 & ~umask``, nao o 0600 do mkstemp); quem
+    grava (Python, ffmpeg, Pillow) escreve nele. Ao sair sem erro, ``os.replace``
+    para ``path``; com qualquer erro o temporario e apagado e ``path`` fica como
+    estava. ``suffix`` serve para o ffmpeg deduzir o formato (".mp4"). O
+    diretorio de ``path`` precisa existir.
+    """
+    path = Path(path)
+    fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}-", suffix=".tmp" + suffix)
+    tmp = Path(name)
+    try:
+        os.close(fd)
+        os.chmod(tmp, 0o666 & ~_umask())
+        yield tmp
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def write_json_atomic(path: Path, data: dict) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(data, ensure_ascii=False, indent=2)  # erro de dado: nada criado
+    with atomic_write(path) as tmp:
+        tmp.write_text(text, encoding="utf-8")
+
+
+def run(cmd: list[str]) -> str:
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        fail(f"comando nao encontrado: {cmd[0]}")
+    except OSError as e:  # PermissionError, ENOEXEC etc.
+        fail(f"nao foi possivel executar {cmd[0]}: {e}")
+    if proc.returncode != 0:
+        tail = "\n".join(proc.stderr.strip().splitlines()[-10:])
+        fail(f"{cmd[0]} falhou (codigo {proc.returncode}): {tail}")
+    return proc.stdout
