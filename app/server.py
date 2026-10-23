@@ -360,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(400, str(e))
         try:
             job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT,
-                                         tarefas.saidas(tipo))
+                                         tarefas.saidas(tipo), ocultar=d)
         except JobBusy:
             return self.error(409, "já existe uma tarefa rodando neste projeto")
         self.json_reply(202, {"job_id": job_id})
@@ -403,6 +403,8 @@ class Handler(BaseHTTPRequestHandler):
         d = self._projeto(slug)
         if d is None:
             return
+        if self.app.jobs.ativo_em(slug):
+            return self.error(409, "há uma tarefa rodando neste projeto")
         nome = self.headers.get("X-Filename") or ""
         ext = os.path.splitext(nome.replace("\\", "/").rsplit("/", 1)[-1])[1].lower()
         if ext not in EXT_VIDEO:
@@ -604,12 +606,20 @@ class Handler(BaseHTTPRequestHandler):
         self.json_reply(200, self._brand_info())
 
 
+class _Servidor(ThreadingHTTPServer):
+    def server_close(self):
+        try:
+            self.app.jobs.shutdown()  # nao deixa ffmpeg/render orfaos
+        finally:
+            super().server_close()
+
+
 def make_server(root: Path, token: str, host: str = "127.0.0.1", port: int = 0,
                 max_upload: int = 4 * 1024 ** 3, test_mode: bool = False
                 ) -> ThreadingHTTPServer:
     """Cria o servidor. Somente loopback e suportado (127.0.0.1/localhost);
     a checagem de Host/Origin assume isso e nao deve ser usado em 0.0.0.0."""
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = _Servidor((host, port), Handler)
     server.daemon_threads = True
     server.app = App(root, token)
     server.max_upload = max_upload

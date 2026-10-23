@@ -7,10 +7,11 @@ argumento derivado do usuario comeca com ``-`` sozinho.
 """
 from __future__ import annotations
 
-import math
 import re
 import sys
 from pathlib import Path
+
+from projects import EXT_VIDEO
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
@@ -39,10 +40,10 @@ def saidas(tipo: str) -> list[str]:
 
 
 def _inteiro(nome, valor, minimo, maximo):
-    if (isinstance(valor, bool) or not isinstance(valor, (int, float))
-            or not math.isfinite(valor) or valor != int(valor)):
+    if isinstance(valor, float) and valor.is_integer():
+        valor = int(valor)  # 3.0 vale 3; inf/nan nao chegam aqui (is_integer False)
+    if isinstance(valor, bool) or not isinstance(valor, int):
         raise ValueError(f"'{nome}' deve ser um número inteiro")
-    valor = int(valor)
     if not minimo <= valor <= maximo:
         raise ValueError(f"'{nome}' deve estar entre {minimo} e {maximo}")
     return valor
@@ -115,7 +116,7 @@ def _py(script: str) -> list[str]:
 
 def _entrada(project: Path) -> Path:
     for p in sorted(project.glob("entrada.*")):
-        if p.is_file():
+        if p.suffix in EXT_VIDEO and p.is_file() and not p.is_symlink():
             return p
     raise ValueError("envie o vídeo antes de continuar")
 
