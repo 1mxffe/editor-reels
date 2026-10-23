@@ -155,3 +155,22 @@ def test_required_items_are_python_ffmpeg_ffprobe_disk(monkeypatch):
     _, items = doctor.check()
     assert [i["name"] for i in items if i["required"]] == [
         "python >= 3.11", "ffmpeg", "ffprobe", f"disco livre >= {doctor.MIN_FREE_GB} GB"]
+
+
+# ---- --json (interface web) ----
+def test_doctor_json_flag_matches_default_exit_code(monkeypatch, capsys):
+    import json
+    _all_present(monkeypatch)
+    monkeypatch.setattr(doctor, "_has_whisper", lambda: False)
+    assert doctor.main() == 0
+    padrao = capsys.readouterr().out
+    assert padrao.strip().splitlines()[-1] == "READY WITH LIMITS"
+    assert doctor.main(["--json"]) == 0
+    dados = json.loads(capsys.readouterr().out)
+    status, items = doctor.check()
+    assert dados == {"estado": status, "itens": items}
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert doctor.main() == 1
+    capsys.readouterr()
+    assert doctor.main(["--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["estado"] == "MISSING"

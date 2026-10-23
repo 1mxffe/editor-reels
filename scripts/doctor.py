@@ -107,8 +107,13 @@ def _printable(text: str) -> str:
         return text.encode("ascii", errors="replace").decode("ascii")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = [] if argv is None else argv
     status, items = check()
+    if "--json" in argv:
+        import json
+        print(json.dumps({"estado": status, "itens": items}, ensure_ascii=False))
+        return 1 if status == "MISSING" else 0
     ok_mark, bad_mark = _marks()
     for i in items:
         detail = f" ({i['detail']})" if i.get("detail") else ""
@@ -118,4 +123,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
