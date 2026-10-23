@@ -5,14 +5,20 @@
 
 cd "$(dirname "$0")" || exit 1
 
-HOMEBREW_PY="/opt/homebrew/opt/python@3.13/libexec/bin/python3"
+# Mac com chip Apple: /opt/homebrew; Mac Intel: /usr/local
+HOMEBREW_PYS="/opt/homebrew/opt/python@3.13/libexec/bin/python3 /usr/local/opt/python@3.13/libexec/bin/python3"
 VERSAO_OK='import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)'
 
 PY=""
 if command -v python3 >/dev/null 2>&1 && python3 -c "$VERSAO_OK" >/dev/null 2>&1; then
   PY="python3"
-elif [ -x "$HOMEBREW_PY" ] && "$HOMEBREW_PY" -c "$VERSAO_OK" >/dev/null 2>&1; then
-  PY="$HOMEBREW_PY"
+else
+  for CANDIDATO in $HOMEBREW_PYS; do
+    if [ -x "$CANDIDATO" ] && "$CANDIDATO" -c "$VERSAO_OK" >/dev/null 2>&1; then
+      PY="$CANDIDATO"
+      break
+    fi
+  done
 fi
 
 if [ -z "$PY" ]; then

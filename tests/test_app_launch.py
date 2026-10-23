@@ -138,7 +138,10 @@ def test_server_main_prints_url_with_token_and_writes_app_json(raiz, procs):
     url, porta, token = pr.url()
     assert "?t=" in url and len(token) >= 20
     app = json.loads((raiz / ".app.json").read_text("utf-8"))
-    assert app == {"porta": porta, "token": token, "pid": pr.p.pid}
+    assert {k: app[k] for k in ("porta", "token", "pid")} == {"porta": porta, "token": token,
+                                                             "pid": pr.p.pid}
+    assert isinstance(app["iniciado_em"], str) and app["iniciado_em"]
+    assert not (raiz / ".app.lock").exists(), "trava solta depois de subir"
     status, corpo = _get(porta, f"/?t={token}")
     assert status == 200 and token.encode() in corpo
     status, corpo = _get(porta, "/api/ping", token)
@@ -220,9 +223,17 @@ def test_second_instance_reuses_first(raiz, procs, monkeypatch, capsys):
 
 
 class _OutroServico(http.server.BaseHTTPRequestHandler):
+    vistos = []
+    prova = None  # None: 404; str: responde {"prova": ...} (errada)
+
     def do_GET(self):
-        corpo = b'{"ok": true}' if self.path == "/sem-token" else b"nada aqui"
-        self.send_response(404)
+        _OutroServico.vistos.append(dict(self.headers))
+        if _OutroServico.prova is not None:
+            corpo = json.dumps({"prova": _OutroServico.prova}).encode()
+            self.send_response(200)
+        else:
+            corpo = b"nada aqui"
+            self.send_response(404)
         self.send_header("Content-Length", str(len(corpo)))
         self.end_headers()
         self.wfile.write(corpo)
@@ -232,9 +243,11 @@ class _OutroServico(http.server.BaseHTTPRequestHandler):
 
 
 @pytest.mark.parametrize("caso", ["corrompido", "nao_objeto", "pid_morto", "porta_fechada",
-                                  "outro_servico", "token_errado"])
+                                  "outro_servico", "prova_errada", "token_errado"])
 def test_stale_app_json_ignored(raiz, procs, caso):
     outro = None
+    _OutroServico.vistos = []
+    _OutroServico.prova = "00" * 32 if caso == "prova_errada" else None
     app_json = raiz / ".app.json"
     if caso == "corrompido":
         app_json.write_text("{isto nao e json", "utf-8")
@@ -263,8 +276,11 @@ def test_stale_app_json_ignored(raiz, procs, caso):
         pr = procs(raiz)
         _, porta, token = pr.url()
         assert pr.p.poll() is None, "subiu um servidor novo"
-        assert json.loads(app_json.read_text("utf-8")) == {"porta": porta, "token": token,
-                                                           "pid": pr.p.pid}
+        novo = json.loads(app_json.read_text("utf-8"))
+        assert (novo["porta"], novo["token"], novo["pid"]) == (porta, token, pr.p.pid)
+        if caso in ("outro_servico", "prova_errada"):
+            assert _OutroServico.vistos, "o servico na porta foi consultado"
+            assert all(not h.get("X-Token") for h in _OutroServico.vistos), "chave nunca vaza"
     finally:
         if outro is not None:
             outro.shutdown()
@@ -308,6 +324,14 @@ def test_heartbeat_requires_token(raiz):
         assert r.status == 200 and r.json() == {"ok": True}
         assert srv.app.ultimo_sinal > antes
         assert c.request("GET", "/api/heartbeat").status == 405
+        meio = srv.app.ultimo_sinal
+        time.sleep(0.01)
+        assert c.get("/api/ping").status == 200
+        assert srv.app.ultimo_sinal > meio, "qualquer pedido autenticado conta"
+        meio = srv.app.ultimo_sinal
+        time.sleep(0.01)
+        c.get("/api/ping", token=False)
+        assert srv.app.ultimo_sinal == meio, "sem chave nao conta"
         r = c.request("POST", "/api/heartbeat", body=b"{}")  # corpo ignorado
         assert r.status == 200
 
@@ -320,7 +344,7 @@ def test_idle_env_override_only_in_test_mode(raiz, monkeypatch):
     explicito = make_server(raiz, "t3", idle_seconds=7, check_seconds=0.2)
     try:
         assert (real.idle_seconds, real.check_seconds) == (server.IDLE_SECONDS, server.CHECK_SECONDS)
-        assert server.IDLE_SECONDS == 120
+        assert server.IDLE_SECONDS == 300
         assert (teste.idle_seconds, teste.check_seconds) == (3.0, 0.5)
         assert (explicito.idle_seconds, explicito.check_seconds) == (7, 0.2)
     finally:
@@ -403,6 +427,7 @@ def test_command_file_is_executable_and_mentions_python_fallback():
     assert texto.startswith("#!/bin/bash\n")
     assert 'cd "$(dirname "$0")"' in texto
     assert "/opt/homebrew/opt/python@3.13/libexec/bin/python3" in texto
+    assert "/usr/local/opt/python@3.13/libexec/bin/python3" in texto, "Mac Intel"
     assert "brew install python@3.13 ffmpeg node git" in texto
     assert "brew.sh" in texto and "read -p" in texto
     assert "-I app/server.py" in texto
@@ -496,6 +521,7 @@ def test_como_usar_covers_install_open_steps_files_and_errors():
     doc = (REPO / "COMO-USAR.md").read_text("utf-8")
     for trecho in ("https://brew.sh", "brew install python@3.13 ffmpeg node git",
                    "/opt/homebrew/opt/python@3.13/libexec/bin",
+                   "/usr/local/opt/python@3.13/libexec/bin", "brew --prefix",
                    "pip install --break-system-packages -r requirements.txt",
                    "Abrir Editor", "botão direito", "projects/<nome do Reel>/saida",
                    "Acesso negado", "O vídeo não envia", "A página não abre"):
@@ -506,6 +532,42 @@ def test_como_usar_covers_install_open_steps_files_and_errors():
     for emBreve in ("Estilo", "Gráficos", "Capa"):
         linha = doc[doc.index(f"**{emBreve}**"):].split("\n\n")[0]
         assert "chega em breve" in linha, emBreve
+    assert "nada é enviado para a internet" not in doc
+    assert "não saem do seu Mac" in doc and "5 minutos" in doc
     assert (REPO / "requirements.txt").is_file()
     readme = (REPO / "README.md").read_text("utf-8")
     assert "COMO-USAR.md" in readme and "Abrir Editor.command" in readme
+
+
+def test_identity_challenge_without_token(raiz):
+    import hashlib
+    import hmac as _hmac
+    srv = make_server(raiz, "tok-id", test_mode=True)
+    with client(srv) as c:
+        nonce = "ab" * 16
+        r = c.get(f"/api/identidade?nonce={nonce}", token=False)
+        assert r.status == 200
+        esperado = _hmac.new(b"tok-id", nonce.encode(), hashlib.sha256).hexdigest()
+        assert r.json() == {"prova": esperado}
+        assert c.get("/api/identidade?nonce=xyz", token=False).status == 400
+        assert c.get("/api/identidade", token=False).status == 400
+        assert c.get(f"/api/identidade?nonce={nonce}", token=False,
+                     headers={"Host": "evil.com"}).status == 403
+    assert server._prova_ok(srv.server_address[1], "tok-id") is False  # servidor ja fechado
+
+
+def test_launch_lock_from_dead_pid_is_cleared(raiz, procs):
+    (raiz / ".app.lock").write_text(str(_pid_morto()), "utf-8")
+    pr = procs(raiz)
+    pr.url()
+    assert not (raiz / ".app.lock").exists()
+
+
+def test_launch_waits_for_live_lock(raiz, procs):
+    trava = raiz / ".app.lock"
+    trava.write_text(str(os.getpid()), "utf-8")
+    pr = procs(raiz)
+    time.sleep(0.5)
+    assert not (raiz / ".app.json").exists(), "espera a outra abertura"
+    trava.unlink()
+    pr.url()

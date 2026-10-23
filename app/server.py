@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import hashlib
 import hmac
 import http.client
 import json
@@ -48,10 +49,11 @@ MAX_DRENAR = 16 * 1024 * 1024  # corpo descartado antes de fechar em erro; maior
 RANGE_RE = re.compile(r"bytes=([0-9]{0,18})-([0-9]{0,18})", re.ASCII)
 DIGITOS_RE = re.compile(r"[0-9]+", re.ASCII)
 MAX_NOME = 200
+NONCE_RE = re.compile(r"[0-9a-f]{32}", re.ASCII)
 
 # encerramento por inatividade: sem batida da pagina por IDLE_SECONDS e sem tarefa
 # rodando, o servidor fecha; confere a cada CHECK_SECONDS
-IDLE_SECONDS = 120
+IDLE_SECONDS = 300
 CHECK_SECONDS = 5
 APP_JSON = ".app.json"  # {"porta","token","pid"} da instancia no ar, em projects/
 PADRAO_RAIZ = REPO_ROOT / "projects"
@@ -247,6 +249,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             parts = urlsplit(self.path)
             path = parts.path
+            if path == "/api/identidade":  # desafio sem chave (segunda instancia)
+                return self.api_identidade(parse_qs(parts.query))
             if path.startswith("/api/"):
                 query = parse_qs(parts.query)
                 candidato = self.headers.get("X-Token")
@@ -255,6 +259,7 @@ class Handler(BaseHTTPRequestHandler):
                     candidato = (query.get("t") or [None])[0]
                 if not self._token_ok(candidato):
                     return self.error(401, "Token ausente ou inválido")
+                self.app.sinal()  # qualquer pedido autenticado conta como atividade
                 return self.api(path, query)
             if self.command not in ("GET", "HEAD"):
                 return self.error(405, "Método não permitido")
@@ -274,6 +279,17 @@ class Handler(BaseHTTPRequestHandler):
 
     do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = _handle
     do_OPTIONS = do_TRACE = do_CONNECT = _handle
+
+    def api_identidade(self, query):
+        """Prova que este servidor tem a chave sem revela-la: HMAC-SHA256(token, nonce)."""
+        if not self._permitir("GET"):
+            return
+        nonce = (query.get("nonce") or [""])[0]
+        if not NONCE_RE.fullmatch(nonce):
+            return self.error(400, "nonce inválido")
+        prova = hmac.new(self.app.token.encode("utf-8"), nonce.encode("ascii"),
+                         hashlib.sha256).hexdigest()
+        self.json_reply(200, {"prova": prova})
 
     def _rota_arquivo(self, path: str) -> bool:
         """GET/HEAD /api/projects/<slug>/arquivos/<rel> (o player do navegador)."""
@@ -929,15 +945,21 @@ def _pid_vivo(pid: int) -> bool:
     return True
 
 
-def _ping(porta: int, token: str, timeout: float = 2.0) -> bool:
-    """O editor desta chave responde nesta porta (outro servico ou outra chave: nao)."""
+def _prova_ok(porta: int, token: str, timeout: float = 2.0) -> bool:
+    """O editor com esta chave responde nesta porta? Desafio sem enviar a chave:
+    o servico prova conhecer o token devolvendo HMAC-SHA256(token, nonce)."""
+    nonce = secrets.token_hex(16)
+    esperado = hmac.new(token.encode("utf-8"), nonce.encode("ascii"), hashlib.sha256).hexdigest()
     conn = http.client.HTTPConnection("127.0.0.1", porta, timeout=timeout)
     try:
-        conn.request("GET", "/api/ping", headers={"Host": f"127.0.0.1:{porta}", "X-Token": token})
+        conn.request("GET", f"/api/identidade?nonce={nonce}",
+                     headers={"Host": f"127.0.0.1:{porta}"})
         r = conn.getresponse()
-        corpo = r.read(1024)
-        return r.status == 200 and json.loads(corpo.decode("utf-8")) == {"ok": True}
-    except (OSError, ValueError, http.client.HTTPException):
+        dados = json.loads(r.read(1024).decode("utf-8"))
+        prova = dados.get("prova") if isinstance(dados, dict) else None
+        return (r.status == 200 and isinstance(prova, str)
+                and hmac.compare_digest(prova.encode("utf-8"), esperado.encode("ascii")))
+    except (OSError, ValueError, UnicodeError, http.client.HTTPException):
         return False
     finally:
         conn.close()
@@ -948,7 +970,7 @@ def instancia_ativa(raiz: Path):
     info = _ler_app_json(raiz)
     if info is None or info["pid"] == os.getpid() or not _pid_vivo(info["pid"]):
         return None
-    if not _ping(info["porta"], info["token"]):
+    if not _prova_ok(info["porta"], info["token"]):
         return None
     return _url(info["porta"], info["token"])
 
@@ -959,10 +981,50 @@ def _url(porta: int, token: str) -> str:
 
 def gravar_app_json(raiz: Path, porta: int, token: str, pid: int) -> None:
     """Grava ``.app.json`` atomicamente e so legivel pelo usuario (0600): tem a chave."""
-    texto = json.dumps({"porta": porta, "token": token, "pid": pid})
+    texto = json.dumps({"porta": porta, "token": token, "pid": pid,
+                        "iniciado_em": time.strftime("%Y-%m-%dT%H:%M:%S%z")})
     with common.atomic_write(Path(raiz) / APP_JSON) as tmp:
         os.chmod(tmp, 0o600)
         tmp.write_text(texto, encoding="utf-8")
+
+
+def _travar(raiz: Path, prazo: float = 30.0) -> bool:
+    """Trava ``.app.lock`` (O_EXCL, com o pid) para duas aberturas ao mesmo tempo nao
+    subirem dois editores. Trava de pid morto (ou ilegivel) e apagada; viva, espera."""
+    trava = Path(raiz) / ".app.lock"
+    fim = time.monotonic() + prazo
+    while True:
+        try:
+            fd = os.open(trava, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            try:
+                dono = int(trava.read_text(encoding="utf-8").strip() or "0")
+            except (OSError, ValueError):
+                dono = 0
+            if dono <= 0 or not _pid_vivo(dono):
+                try:
+                    trava.unlink()
+                except OSError:
+                    pass
+                continue
+            if time.monotonic() > fim:
+                return False
+            time.sleep(0.1)
+            continue
+        except OSError:
+            return False
+        with os.fdopen(fd, "w") as f:
+            f.write(str(os.getpid()))
+        return True
+
+
+def _destravar(raiz: Path) -> None:
+    trava = Path(raiz) / ".app.lock"
+    try:
+        if trava.read_text(encoding="utf-8").strip() == str(os.getpid()):
+            trava.unlink()
+    except OSError:
+        pass
 
 
 def remover_app_json(raiz: Path, pid: int) -> None:
@@ -997,6 +1059,15 @@ def main(argv=None) -> int:
     except OSError:
         print(f"erro: não foi possível usar a pasta de projetos ({raiz.name}).", file=sys.stderr)
         return 1
+    travado = _travar(raiz)
+    try:
+        return _main(args, raiz, travado)
+    finally:
+        if travado:
+            _destravar(raiz)
+
+
+def _main(args, raiz: Path, travado: bool) -> int:
 
     existente = instancia_ativa(raiz)
     if existente:
@@ -1038,6 +1109,8 @@ def main(argv=None) -> int:
             if hasattr(signal, nome):
                 signal.signal(getattr(signal, nome), lambda *_: encerrar())
         gravar_app_json(raiz, porta, token, pid)
+        if travado:
+            _destravar(raiz)  # .app.json ja gravado: a proxima abertura reaproveita
         url = _url(porta, token)
         print("Editor de Reels aberto.", flush=True)
         print(f"Endereço: {url}", flush=True)

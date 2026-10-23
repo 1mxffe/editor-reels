@@ -231,7 +231,7 @@ for (const ev of ['dragover', 'drop']) {
 
 // ------------------------------------------------------------------ batida
 // Avisa o editor que a pagina continua aberta; sem batida (e sem trabalho rodando)
-// ele fecha sozinho depois de 2 minutos. Falha e silenciosa: a proxima tenta de novo.
+// ele fecha sozinho depois de 5 minutos. Falha e silenciosa: a proxima tenta de novo.
 const BATIDA_MS = 10_000;
 function batida() {
   fetch('/api/heartbeat', { method: 'POST', headers: { 'X-Token': TOKEN }, keepalive: true })

@@ -1,8 +1,9 @@
 # Como usar o Editor de Reels
 
 O editor transforma o vídeo que você gravou falando para a câmera em um Reel
-vertical, com cortes e legendas. Tudo acontece no seu Mac: nada é enviado para a
-internet e nada é publicado sozinho.
+vertical, com cortes e legendas. Tudo acontece no seu Mac: seus vídeos não saem do seu Mac
+(só a primeira instalação baixa programas e o modelo de voz) e nada é publicado
+sozinho.
 
 Este guia é para quem nunca usou o Terminal. Siga na ordem.
 
@@ -39,11 +40,26 @@ Pode levar alguns minutos.
 
 ### Passo 3 — Fazer o Mac usar o Python novo
 
-O Mac já vem com um Python antigo. Esta linha faz o Terminal usar o novo:
+O Mac já vem com um Python antigo. Primeiro descubra onde o Homebrew ficou.
+Cole esta linha e aperte `Enter`:
 
 ```
-echo 'export PATH="/opt/homebrew/opt/python@3.13/libexec/bin:$PATH"' >> ~/.zprofile
+brew --prefix
 ```
+
+- Se aparecer **`/opt/homebrew`** (Mac com chip Apple, M1/M2/M3...), use esta linha:
+
+  ```
+  echo 'export PATH="/opt/homebrew/opt/python@3.13/libexec/bin:$PATH"' >> ~/.zprofile
+  ```
+
+- Se aparecer **`/usr/local`** (Mac Intel, mais antigo), use esta outra:
+
+  ```
+  echo 'export PATH="/usr/local/opt/python@3.13/libexec/bin:$PATH"' >> ~/.zprofile
+  ```
+
+Cole só a linha do seu caso e aperte `Enter`.
 
 Depois **feche o Terminal** (`Command + Q`) e abra de novo.
 
@@ -91,7 +107,7 @@ Se você der dois cliques com o editor já aberto, ele só abre a mesma página 
 novo; não começa outro.
 
 **Para fechar:** feche a janela do Terminal. Se você só fechar a página no
-navegador, o editor fecha sozinho depois de 2 minutos (mas espera terminar
+navegador, o editor fecha sozinho depois de 5 minutos (mas espera terminar
 qualquer trabalho que estiver rodando, como gerar o vídeo final).
 
 ---
@@ -145,7 +161,7 @@ reiniciado. Feche a aba e dê dois cliques em `Abrir Editor`.
 
 **A página diz "Sem conexão com o editor".**
 O editor foi fechado (a janela do Terminal foi fechada ou ele fechou sozinho
-depois de 2 minutos sem a página). Dê dois cliques em `Abrir Editor`; o que você
+depois de 5 minutos sem a página). Dê dois cliques em `Abrir Editor`; o que você
 já fez continua guardado.
 
 **O vídeo não envia.**
