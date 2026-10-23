@@ -65,11 +65,19 @@ class Projects:
         return {"slug": d.name, "nome": nome if isinstance(nome, str) and nome else d.name,
                 "criado": criado}
 
+    def _dir_ok(self, d: Path) -> bool:
+        """Pasta de projeto de verdade: nao e link e esta direto em root."""
+        try:
+            return (d.is_dir() and not d.is_symlink()
+                    and d.resolve().parent == self.root.resolve())
+        except (OSError, RuntimeError):
+            return False
+
     def list(self) -> list[dict]:
         if not self.root.is_dir():
             return []
         itens = [self._meta(d) for d in self.root.iterdir()
-                 if d.is_dir() and SLUG_RE.fullmatch(d.name) and len(d.name) <= SLUG_MAX]
+                 if SLUG_RE.fullmatch(d.name) and len(d.name) <= SLUG_MAX and self._dir_ok(d)]
         itens.sort(key=lambda p: (p["criado"], p["slug"]), reverse=True)
         return itens
 
@@ -96,7 +104,9 @@ class Projects:
                 or not SLUG_RE.fullmatch(slug)):
             raise ProjectsError("projeto inválido")
         d = self.root / slug
-        if not d.is_dir():
+        if d.is_symlink() or not self._dir_ok(d):
+            if d.is_symlink() or d.exists():
+                raise ProjectsError("projeto inválido")
             raise ProjectsError("projeto não existe")
         return d
 
@@ -107,7 +117,8 @@ class Projects:
             raise ProjectsError("arquivo não permitido")
         partes = rel.split("/")
         if (len(partes) > MAX_COMPONENTES
-                or any(p in ("", "..") or p.startswith(".") for p in partes)):
+                or any(p in ("", "..") or p.startswith(".") for p in partes)
+                or any(len(p) > 255 or len(p.encode("utf-8", "replace")) > 255 for p in partes)):
             raise ProjectsError("arquivo não permitido")
         if len(partes) == 1:
             permitido = partes[0].startswith("entrada.") and len(partes[0]) > len("entrada.")
@@ -117,12 +128,12 @@ class Projects:
             raise ProjectsError("arquivo não permitido")
         try:
             alvo = (base / rel).resolve()
+            if base not in alvo.parents:
+                raise ProjectsError("arquivo não permitido")
+            if not alvo.is_file():
+                raise ProjectsError("arquivo não encontrado")
         except (OSError, RuntimeError, ValueError):
-            raise ProjectsError("arquivo não permitido") from None
-        if base not in alvo.parents:
-            raise ProjectsError("arquivo não permitido")
-        if not alvo.is_file():
-            raise ProjectsError("arquivo não encontrado")
+            raise ProjectsError("arquivo não encontrado") from None
         return alvo
 
     # -- estado ------------------------------------------------------------
@@ -139,7 +150,7 @@ class Projects:
         trans = _ler_json(d / "transcricao.json")
         if isinstance(trans, dict):
             dur = trans.get("duration")
-            if isinstance(dur, (int, float)) and not isinstance(dur, bool):
+            if common.is_num(dur) and dur >= 0:
                 duracao = float(dur)
         feito = {
             "video": bool(entradas),

@@ -149,3 +149,40 @@ def test_state_tolerates_corrupt_json(projs):
     _touch(d / "etapas.json", b"[1]")
     st = projs.state("x")
     assert st["duracao"] is None and st["etapas"]["transcricao"] == "pronto"
+
+
+def test_resolve_file_long_names_and_broken_links(projs):
+    d = projs.root / projs.create("p")["slug"]
+    for rel in ("saida/" + "x" * 300, "capa/" + "x" * 256, "materiais/" + "é" * 200,
+                "quadros/" + "x" * 5000, "entrada." + "x" * 300):
+        with pytest.raises(ProjectsError):
+            projs.resolve_file("p", rel)
+    (d / "saida").mkdir()
+    (d / "saida" / "a.mp4").symlink_to(d / "saida" / "b.mp4")
+    (d / "saida" / "b.mp4").symlink_to(d / "saida" / "a.mp4")  # laco
+    (d / "saida" / "solto.mp4").symlink_to(d / "saida" / "nao-existe.mp4")  # pendurado
+    for rel in ("saida/a.mp4", "saida/solto.mp4"):
+        with pytest.raises(ProjectsError):
+            projs.resolve_file("p", rel)
+
+
+@pytest.mark.parametrize("valor", ["NaN", "Infinity", "-Infinity", "1e999", "-5", '"12"', "true", "null"])
+def test_state_duracao_only_finite_nonnegative(projs, valor):
+    d = projs.root / projs.create("p")["slug"]
+    (d / "transcricao.json").write_text('{"duration": %s}' % valor, encoding="utf-8")
+    assert projs.state("p")["duracao"] is None
+
+
+def test_symlinked_project_folder_rejected(projs, tmp_path):
+    fora = tmp_path / "fora"
+    (fora / "saida").mkdir(parents=True)
+    (fora / "saida" / "x.mp4").write_bytes(b"x")
+    (projs.root / "lnk").symlink_to(fora, target_is_directory=True)
+    projs.create("ok")
+    with pytest.raises(ProjectsError, match="projeto inválido"):
+        projs.path("lnk")
+    with pytest.raises(ProjectsError):
+        projs.resolve_file("lnk", "saida/x.mp4")
+    with pytest.raises(ProjectsError):
+        projs.state("lnk")
+    assert [p["slug"] for p in projs.list()] == ["ok"]
