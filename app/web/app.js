@@ -235,7 +235,7 @@ for (const ev of ['dragover', 'drop']) {
 const BATIDA_MS = 10_000;
 function batida() {
   fetch('/api/heartbeat', { method: 'POST', headers: { 'X-Token': TOKEN }, keepalive: true })
-    .catch(() => {});
+    .then((r) => r.arrayBuffer()).catch(() => {});
 }
 
 // ----------------------------------------------------------------- inicio

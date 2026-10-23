@@ -485,6 +485,8 @@ def test_page_heartbeat_in_browser(tmp_path):
     assert res["inicial"] >= 1, "bate assim que a pagina abre"
     assert res["depois10s"] == res["inicial"] + 1, res
     assert res["depois20s"] == res["inicial"] + 2, res
+    assert res["terminadas"] == res["depois20s"], "resposta lida: nenhum pedido pendurado"
+    assert res["ociosa"] is True, "a batida nao impede a rede de ficar ociosa"
     assert all(b["metodo"] == "POST" and b["token"] for b in res["batidas"])
     assert res["fatal"] is False, "batida falhando nao mostra erro na tela"
 

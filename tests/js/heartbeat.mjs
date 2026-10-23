@@ -18,11 +18,13 @@ const out = {};
 try {
   const page = await browser.newPage();
   const batidas = [];
+  let terminadas = 0;
+  const ehBatida = (r) => new URL(r.url()).pathname === '/api/heartbeat';
   page.on('request', (r) => {
-    if (new URL(r.url()).pathname === '/api/heartbeat') {
-      batidas.push({ metodo: r.method(), token: r.headers()['x-token'] === srv.token });
-    }
+    if (ehBatida(r)) batidas.push({ metodo: r.method(), token: r.headers()['x-token'] === srv.token });
   });
+  // a resposta precisa ser lida ate o fim: pedido "pendurado" prende conexao e networkidle
+  page.on('requestfinished', (r) => { if (ehBatida(r)) terminadas += 1; });
   await page.clock.install();
   await page.goto(srv.url);
   await esperar(() => batidas.length >= 1);
@@ -34,6 +36,10 @@ try {
   await page.clock.runFor(10_000);
   await esperar(() => batidas.length >= out.inicial + 2);
   out.depois20s = batidas.length;
+  await esperar(() => terminadas >= out.depois20s);
+  out.terminadas = terminadas;
+  await page.waitForLoadState('networkidle', { timeout: 5000 });
+  out.ociosa = true;
   // editor fora do ar: a batida falha sem aviso nenhum na tela
   await page.route('**/api/heartbeat', (r) => r.abort());
   await page.clock.runFor(10_000);
