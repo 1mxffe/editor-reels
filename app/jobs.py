@@ -308,13 +308,15 @@ class Jobs:
     # -- execucao -----------------------------------------------------------
     def _executar(self, job_id: str, proc) -> None:
         log = collections.deque(maxlen=MAX_LOG)
-        estado = {"erro": None, "push": 0.0}
+        estado = {"erro": None, "push": 0.0, "sujo": False}
         parar = threading.Event()
 
         def publicar(forcar=False):
+            estado["sujo"] = True
             agora = time.monotonic()
             if forcar or agora - estado["push"] > 0.2:
                 estado["push"] = agora
+                estado["sujo"] = False
                 with self._lock:
                     if job_id in self._jobs:
                         self._jobs[job_id]["log"] = list(log)
@@ -356,6 +358,8 @@ class Jobs:
                     if fd is not None:
                         pronto, _, _ = select.select([fd], [], [], 0.1)
                         if not pronto:
+                            if estado["sujo"]:  # linhas retidas pelo limite de frequencia
+                                publicar(forcar=True)
                             continue
                     dados = proc.stdout.read(65536)
                     if not dados:

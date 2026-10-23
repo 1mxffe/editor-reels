@@ -370,12 +370,27 @@ def test_setsid_descendant_holding_pipe_does_not_keep_job_running(root, tmp_path
 
 
 def test_repeated_cancel_starts_one_escalation(root):
+    # o processo ignora SIGTERM e GRACA e longa: o job continua "rodando" durante
+    # todo o teste (sem depender de tempo), entao cancelar repetido deve dar True
     j = Jobs(root)
-    jid = j.start("a", "x", py("import time; time.sleep(60)"), root / "a")
-    assert j.cancel(jid) and j.cancel(jid) and j.cancel(jid)
-    n = [t for t in threading.enumerate() if t.name == f"escalar-{jid}"]
-    assert len(n) <= 1
-    esperar(j, jid)
+    j.GRACA = 60
+    jid = j.start("a", "x", py(
+        "import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);"
+        "print('pronto',flush=True);time.sleep(60)"), root / "a")
+    for _ in range(200):
+        if j.get(jid)["log"]:
+            break
+        time.sleep(0.05)
+    assert j.get(jid)["log"] == ["pronto"], j.get(jid)
+    pgid = j._procs[jid].pid
+    try:
+        assert j.cancel(jid) and j.cancel(jid) and j.cancel(jid)
+        assert j.get(jid)["estado"] == "rodando"
+        n = [t for t in threading.enumerate() if t.name == f"escalar-{jid}"]
+        assert len(n) == 1
+    finally:
+        os.killpg(pgid, signal.SIGKILL)
+    assert esperar(j, jid)["estado"] == "cancelado"
 
 
 def test_giant_line_is_truncated(root):
@@ -553,3 +568,21 @@ def test_message_hides_project_path(root):
                   proj, ocultar=proj)
     d = esperar(j, jid)
     assert d["mensagem"] == "falta <projeto>/transcricao.json"
+
+
+def test_log_published_when_output_goes_idle(root):
+    # duas escritas separadas por pouco tempo: a 2a cai no limite de frequencia
+    # e o log nao pode ficar defasado enquanto o processo segue ocioso
+    j = Jobs(root)
+    jid = j.start("a", "x", py(
+        "import sys,time;sys.stdout.write('pronto');sys.stdout.flush();time.sleep(0.05);"
+        "sys.stdout.write('\\n');sys.stdout.flush();time.sleep(60)"), root / "a")
+    for _ in range(100):
+        if j.get(jid)["log"] == ["pronto"]:
+            break
+        time.sleep(0.05)
+    try:
+        assert j.get(jid)["log"] == ["pronto"]
+    finally:
+        os.killpg(j._procs[jid].pid, signal.SIGKILL)
+    esperar(j, jid)
