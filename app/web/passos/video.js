@@ -245,7 +245,6 @@ function telaProjeto(container, ctx) {
 
 registrarPasso({
   id: 'video',
-  get tituloPainel() { return undefined; },
   render(container, ctx) {
     telaAtual = null;
     if (!ctx.slug || !ctx.estado) {

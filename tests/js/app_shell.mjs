@@ -53,7 +53,10 @@ async function abrir(ctx, srv, ultimo) {
   const page = await ctx.newPage();
   const erros = [];
   page.on('pageerror', (e) => erros.push(String(e)));
-  page.on('console', (m) => { if (m.type() === 'error') erros.push(m.text()); });
+  // "Failed to load resource" e o navegador registrando os erros HTTP provocados de proposito
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) erros.push(m.text());
+  });
   if (ultimo) {
     await page.addInitScript((s) => {
       try { localStorage.setItem('editor-reels:ultimo-projeto', s); } catch { /* sem storage */ }
