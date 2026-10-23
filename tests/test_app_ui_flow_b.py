@@ -64,7 +64,7 @@ def results(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("app_flow_b")
     video = tmp / "video.mp4"
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi",
-                    "-i", "testsrc2=size=360x640:rate=30:duration=6",
+                    "-i", "testsrc2=size=720x1280:rate=30:duration=6",
                     "-c:v", "libvpx-vp9", "-b:v", "300k", "-an", str(video)],
                    check=True, capture_output=True)
     foto = tmp / "Retrato do Dr Silva.png"
