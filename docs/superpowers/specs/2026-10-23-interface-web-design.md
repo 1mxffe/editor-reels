@@ -111,15 +111,15 @@ pronto, mas dá para voltar.
 7. **Capa:** "Escolher quadro" mostra 3 candidatos (ou envia uma foto); campos gancho, tag da área e subtítulo; capa gerada ao lado; aviso se o texto não cabe.
 8. **Final:** "Gerar versão final", tempo estimado, player, e botão "Abrir pasta" com `final.mp4` e `capa.png`.
 
-### Passo Estilo (catálogo fixo, aplicado direto)
+### Passo Estilo (lê o banco, aplicado direto)
 
 O usuário escolhe em cartões; cada cartão traz um **quadro do vídeo dele com o estilo
 já desenhado** (gerado sob demanda por um comando novo, ver "Motor"), o nome e uma frase
 curta. Escolha por aba: um cartão "usar" por aba; "mais parecido com este" reordena os
 cartões da aba em torno do escolhido (variações de tamanho, posição e fundo do mesmo estilo).
 
-- **Paletas:** a da marca (azul-marinho `#001931`, gelo `#ddebf5`, acento `#a8c8f0`) e variações
-  predefinidas (marinho profundo, claro-gelo, neutro-grafite). Define fundo da faixa/cartões,
+- **Paletas:** a da marca (azul-marinho `#001931`, gelo `#ddebf5`, acento `#a8c8f0`) e as
+  demais do banco. Define fundo da faixa/cartões,
   texto e destaque (afeta legendas, cards e capa).
 - **Fontes:** só as famílias cujos arquivos existem em `assets/fonts/` (hoje: Poppins Bold).
   Colocar outro `.ttf` ali faz a opção aparecer; a aba diz isso com todas as letras.
@@ -143,9 +143,59 @@ Visual: azul-marinho `#001931`, texto gelo `#ddebf5`, acento `#a8c8f0`, Poppins
 (arquivo em `assets/fonts/`), tema claro/escuro, 16 px de margem, funciona em
 375 px, foco visível, `lang="pt-BR"`, sem emoji como ícone; movimento calmo.
 
+## Banco de estilos e efeitos
+
+O passo **Estilo** (e o passo Gráficos) lê de um **banco** em `banco/`: pastas, uma por item,
+que a equipe pode crescer **sem programar** (copiar uma pasta e editar o texto do manifesto).
+
+```
+banco/
+  paletas/<id>/manifesto.json              cores (fundo, texto, destaque, apoio)
+  legendas/<id>/manifesto.json             estilo de legenda estática (posição, tamanho, fundo, peso)
+  efeitos/<id>/manifesto.json + efeito.html   efeito animado desenhado no Chromium
+  materiais/                               fotos, ícones, vídeos e inspirações do escritório
+```
+
+- **Manifesto:** `nome`, `descricao` (frase curta mostrada no cartão), `tipo`, `campos`
+  (o que o usuário preenche: texto, número, imagem, cor; com limites de tamanho), `duracao`
+  padrão e mínima/máxima. O app monta o formulário a partir dos `campos`; nada é código.
+- **Efeito = página HTML** com `window.setTime(t)` (como os cards de hoje): determinística,
+  sem rede, texto só por `textContent`. Ganha cartão com **quadro de exemplo** gerado do
+  vídeo do usuário e botão **"mais parecido com este"** (variações guardadas no manifesto).
+- **Banco de materiais:** pasta compartilhada entre todos os Reels (upload pela tela, também
+  fotos do advogado e logos); os efeitos que pedem imagem escolhem dali.
+- **Validação** na subida: manifesto inválido ou efeito que não renderiza **não aparece** e a
+  tela de instalação diz qual pasta e por quê.
+
+### Conteúdo inicial do banco (esta versão)
+
+- **Paletas (4):** Marca (azul-marinho), Marinho profundo, Gelo claro, Grafite.
+- **Legendas (4):** Faixa azul (a atual), Pílula escura no centro, Duas linhas grandes,
+  Pequena baixa à esquerda (todas estáticas, sem pop-up; combináveis com posição e tamanho).
+- **Efeitos (10), com o que o usuário preenche:**
+  1. *Card de destaque* (título, texto, imagem opcional) — o card de hoje.
+  2. *Número grande* ("60 dias", "3 mitos"; número + frase) — entra com escala suave.
+  3. *Pílula de destaque* (texto curto) — pílula de vidro que entra de lado.
+  4. *Selos/etiquetas* (2 a 4 textos curtos) — vários selos que entram em sequência.
+  5. *Polaroides* (1 a 3 imagens, do banco de materiais ou **quadros do próprio vídeo**) — caem e giram de leve.
+  6. *Círculo desenhado à mão* (posição + tamanho) — traço que se desenha em volta de algo.
+  7. *Seta desenhada à mão* (posição + direção) — traço que se desenha.
+  8. *Calendário* (mês, dias marcados) — folha com marcações.
+  9. *Linha do tempo* (2 a 4 datas + legenda de cada) — a do card informativo da marca.
+  10. *Palavra em destaque* (texto grande em tela cheia por 1–2 s) — corte seco, sem sobrepor a legenda.
+- **Fora, por não ter como fazer sem recorte da pessoa:** "palavra gigante atrás da pessoa" e
+  efeitos que dependem de separar a pessoa do fundo. Podem entrar depois, se houver como recortar.
+- Todos os efeitos são **animados**; a regra de "sem pop-up/animação" vale só para
+  **legendas** (pedido do usuário).
+
 ## Motor: o que muda nos scripts
 
-- `scripts/estilo.py` (novo): catálogo de estilos, validação de `estilo.json`, defaults =
+- `scripts/banco.py` (novo): carrega e valida o `banco/` (manifestos, campos, limites),
+  lista itens para a API e renderiza **um quadro de exemplo** de cada efeito/legenda/paleta.
+- `scripts/graphics.py`: passa a renderizar qualquer efeito do banco (`efeito.html` +
+  `campos`) no mesmo pipeline de frames do Chromium; o `graficos.json` guarda
+  `{efeito, campos, at, dur}`; os cards de hoje continuam válidos (efeito `card-destaque`).
+- `scripts/estilo.py` (novo): validação de `estilo.json`, defaults =
   comportamento atual, e `quadro(project, estilo, t, out)` que desenha **um quadro** do vídeo
   com o estilo (ffmpeg, mesma montagem do render, 540x960, rápido) para os cartões.
 - `captions.py`: `to_ass(..., estilo)` ganha os quatro estilos, posição e tamanho; sem
