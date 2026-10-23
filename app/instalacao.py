@@ -1,43 +1,44 @@
 """Itens do doctor em portugues: nome, mensagem e comando de instalacao (Mac/Homebrew/pip).
 
 A chave de ITENS e o ``name`` devolvido por ``scripts/doctor.py::check()``.
-Item desconhecido nunca e omitido: ``traduzir`` o devolve com nome=name e
-mensagem=detail.
+Item desconhecido nunca e omitido: ``traduzir`` o devolve com nome=name.
+Nomes e mensagens sao para quem nunca usou o terminal; o motivo tecnico do
+doctor vai a parte, em ``detalhe``.
 """
 from __future__ import annotations
 
 # name do doctor -> (id, nome, opcional, mensagem se faltar, comando ou None)
 ITENS: dict[str, tuple[str, str, bool, str, str | None]] = {
     "python >= 3.11": (
-        "python", "Python 3.11 ou mais novo", False,
-        "O Python instalado é antigo demais; instale o 3.11 ou mais novo.",
+        "python", "Programa base do editor", False,
+        "A versão instalada é antiga demais; instale a mais nova.",
         "brew install python@3.13"),
     "ffmpeg": (
-        "ffmpeg", "ffmpeg", False,
-        "Necessário para cortar, legendar e renderizar o vídeo.",
+        "ffmpeg", "Conversor de vídeo", False,
+        "Necessário para cortar, legendar e montar o vídeo.",
         "brew install ffmpeg"),
     "ffprobe": (
-        "ffprobe", "ffprobe", False,
-        "Necessário para ler a duração e conferir os vídeos enviados (vem com o ffmpeg).",
+        "ffprobe", "Leitor de vídeo", False,
+        "Necessário para ler a duração e conferir os vídeos enviados (vem junto com o conversor de vídeo).",
         "brew install ffmpeg"),
     "node (opcional: cards e capa)": (
-        "node", "Node.js", True,
+        "node", "Desenho dos cards e da capa", True,
         "Sem ele não há cards de gráfico nem capa.",
         "brew install node"),
     "disco livre >= 10 GB": (
-        "disco", "Espaço livre em disco (10 GB)", False,
-        "Libere espaço em disco: vídeos e renders ocupam muito.",
+        "disco", "Espaço livre no disco (10 GB)", False,
+        "Libere espaço no disco: vídeos prontos ocupam bastante.",
         None),
     "faster_whisper (opcional)": (
-        "whisper", "Transcrição automática (faster-whisper)", True,
-        "Sem ele a transcrição automática não funciona.",
+        "whisper", "Reconhecimento de fala", True,
+        "Sem ele o texto do vídeo não é gerado automaticamente.",
         "pip install -r requirements.txt"),
     "Pillow (opcional: capa)": (
-        "pillow", "Pillow (imagens da capa)", True,
-        "Sem ele não há candidatos nem composição da capa.",
+        "pillow", "Imagens da capa", True,
+        "Sem ele não há sugestões de quadro nem montagem da capa.",
         "pip install -r requirements.txt"),
     "chromium + playwright (opcional: graficos)": (
-        "graficos", "Chromium + Playwright (cards de gráfico)", True,
+        "graficos", "Navegador de gráficos", True,
         "Sem ele os cards de gráfico não são desenhados.",
         "npm install && npx playwright install chromium"),
 }
@@ -54,15 +55,14 @@ def traduzir(estado: str, itens: list[dict]) -> dict:
         conhecido = ITENS.get(name)
         if conhecido:
             id_, nome, opcional, falta, comando = conhecido
-            if ok:
-                mensagem = "Instalado."
-            else:
-                mensagem = f"{falta} ({detail})" if detail else falta
+            mensagem = "Instalado." if ok else falta
         else:
             id_, nome, opcional = name, name, not it.get("required", True)
             comando = None
-            mensagem = detail
+            mensagem = "Instalado." if ok else "Item novo da conferência; veja os detalhes técnicos."
+        # o motivo cru do doctor vai separado: a tela o mostra so em "Detalhes tecnicos"
         out.append({"id": id_, "nome": nome, "ok": ok, "opcional": opcional,
-                    "mensagem": mensagem, "comando": comando})
+                    "mensagem": mensagem, "comando": comando,
+                    "detalhe": None if ok else (detail or None)})
     return {"estado": ESTADOS.get(estado, "faltam itens"), "estado_codigo": estado,
             "itens": out}

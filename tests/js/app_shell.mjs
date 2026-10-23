@@ -26,10 +26,13 @@ const DOCTOR_FALTA = {
   estado: 'NOT READY',
   itens: [
     { name: 'python >= 3.11', ok: true, required: true },
-    { name: 'ffmpeg', ok: false, required: true, detail: 'não encontrado' },
+    { name: 'ffmpeg', ok: false, required: true, detail: 'ffmpeg não encontrado no PATH' },
     { name: 'disco livre >= 10 GB', ok: true, required: true },
-    { name: 'faster_whisper (opcional)', ok: false, required: false },
-    { name: 'chromium + playwright (opcional: graficos)', ok: false, required: false },
+    { name: 'faster_whisper (opcional)', ok: false, required: false, detail: 'módulo faster_whisper ausente' },
+    { name: 'Pillow (opcional: capa)', ok: false, required: false, detail: 'pip install -r requirements.txt' },
+    { name: 'node (opcional: cards e capa)', ok: false, required: false },
+    { name: 'chromium + playwright (opcional: graficos)', ok: false, required: false,
+      detail: 'Chromium do Playwright ausente (npx playwright install chromium)' },
   ],
 };
 
@@ -80,10 +83,21 @@ const semRolagem = (page) => page.evaluate(() => ({
   bodyScroll: document.body.scrollWidth,
 }));
 
+// Texto que a pessoa le na tela: innerText (so o renderizado; <details> fechado fica
+// de fora) sem os comandos copiaveis (<code>), que sao tecnicos de proposito.
+const textoVisivel = (page) => page.evaluate(() => {
+  const codes = [...document.querySelectorAll('code')];
+  const antes = codes.map((c) => c.style.display);
+  codes.forEach((c) => { c.style.display = 'none'; });
+  const t = document.body.innerText;
+  codes.forEach((c, i) => { c.style.display = antes[i]; });
+  return t;
+});
+
 async function screenshot(page, nome) {
   if (!cfg.screens) return;
   fs.mkdirSync(cfg.screens, { recursive: true });
-  await page.waitForTimeout(150);
+  await page.evaluate(() => document.fonts.ready.then(() => true));
   await page.screenshot({ path: path.join(cfg.screens, nome), fullPage: true });
 }
 
@@ -136,7 +150,7 @@ await cenario('locked', async () => {
   await page.waitForSelector('#arquivo-video', { state: 'attached' });
   const antes = await estados(page);
   await page.click('#passos .passo[data-passo="legendas"]', { force: true });
-  await page.waitForTimeout(200);
+  await page.waitForSelector('#toasts .toast');
   const painelAposBloqueado = await page.getAttribute('#painel', 'data-passo');
   const toast = (await page.locator('#toasts .toast').allTextContents()).join(' | ');
   await enviar(page, cfg.video);
@@ -153,11 +167,13 @@ await cenario('locked', async () => {
   await page.click('#passos .passo[data-passo="video"]');
   await page.waitForSelector('#painel[data-passo="video"] #video-info');
   const voltou = (await page.textContent('#video-info')).trim();
-  await page.reload();
+  // a chave sai da barra de endereco; reabrir e pelo icone (endereco com ?t=)
+  const busca = await page.evaluate(() => window.location.search);
+  await page.goto(srvA.url);
   await page.waitForSelector('#painel[data-passo]');
   await esperar(async () => (await page.textContent('#projeto-atual')).includes('Reel bloqueio'));
   const r = {
-    antes, painelAposBloqueado, toast, depoisVideo, depoisCortes, textoCortes, voltou,
+    antes, painelAposBloqueado, toast, busca, depoisVideo, depoisCortes, textoCortes, voltou,
     aposRecarregar: (await page.textContent('#projeto-atual')).trim(),
     storage: await page.evaluate(() => Object.keys(localStorage)),
     erros: page.__erros,
@@ -174,16 +190,20 @@ await cenario('install', async () => {
   await page.waitForSelector('#lista-itens .item');
   const itens = await page.$$eval('#lista-itens .item', (els) => els.map((e) => ({
     id: e.dataset.id, ok: e.dataset.ok, texto: e.textContent.replace(/\s+/g, ' ').trim(),
-    comando: (e.querySelector('code') || {}).textContent || null,
+    comando: (e.querySelector('.item-comando code') || {}).textContent || null,
     copiar: !!e.querySelector('button.copiar'),
   })));
   const resumo = (await page.textContent('#instalacao-resumo')).trim();
   await page.click('#lista-itens .item[data-id="ffmpeg"] button.copiar');
-  await page.waitForTimeout(150);
+  await esperar(async () => (await page.textContent('#lista-itens .item[data-id="ffmpeg"] button.copiar')).includes('Copiado'), 3000);
   const copiado = await page.evaluate(() => navigator.clipboard.readText());
   const botaoCopiar = (await page.textContent('#lista-itens .item[data-id="ffmpeg"] button.copiar')).trim();
   const chromiumSemProjeto = await page.locator('#instalar-chromium').count();
-  const comandoChromium = await page.locator('#lista-itens .item[data-id="graficos"] code').count();
+  const dicaSemProjeto = await page.locator('#lista-itens .item[data-id="graficos"]').innerText();
+  const visivelInstalacao = await textoVisivel(page);
+  const detalhes = await page.$$eval('#lista-itens details', (ds) => ds.map((d) => ({
+    resumo: d.querySelector('summary').textContent.trim(), aberto: d.open, texto: d.textContent })));
+  const comandoChromium = await page.locator('#lista-itens .item[data-id="graficos"] .item-comando code').count();
   // @ invalido: mensagem do servidor por extenso
   await page.fill('#handle-campo', '@@ruim!');
   await page.click('#handle-salvar');
@@ -201,10 +221,15 @@ await cenario('install', async () => {
   await page2.waitForSelector('#lista-itens .item');
   const chromiumComProjeto = await page2.locator('#instalar-chromium').count();
   const textoBotao = chromiumComProjeto ? (await page2.textContent('#instalar-chromium')).trim() : '';
+  const visivelInstalacaoProjeto = await textoVisivel(page2);
+  await page2.click('#passos .passo[data-passo="video"]');
+  await page2.waitForSelector('#arquivo-video', { state: 'attached' });
+  const visivelVideo = await textoVisivel(page2);
   await screenshot(page2, 'instalacao-1280-claro.png');
   const r = {
     telaInicial, itens, resumo, copiado, botaoCopiar, chromiumSemProjeto, comandoChromium,
-    erroHandle, salvo, brand, chromiumComProjeto, textoBotao,
+    erroHandle, salvo, brand, chromiumComProjeto, textoBotao, dicaSemProjeto, detalhes,
+    visivel: { instalacao: visivelInstalacao, instalacaoProjeto: visivelInstalacaoProjeto, video: visivelVideo },
     textoTela: (await page.textContent('body')).replace(/\s+/g, ' '),
     erros: [...page.__erros, ...page2.__erros],
   };
@@ -278,25 +303,26 @@ await cenario('upload', async () => {
   await esperar(async () => page.$eval('#player-video', (v) => v.readyState >= 1), 10000);
   const src = await page.$eval('#player-video', (v) => v.currentSrc);
   await page.click('#player-mais5');
-  await page.waitForTimeout(200);
+  await esperar(async () => page.$eval('#player-video', (v) => v.currentTime > 4), 3000);
   const aposMais5 = await page.$eval('#player-video', (v) => v.currentTime);
   await page.click('#player-menos5');
-  await page.waitForTimeout(200);
+  await esperar(async () => page.$eval('#player-video', (v) => v.currentTime < 1), 3000);
   const aposMenos5 = await page.$eval('#player-video', (v) => v.currentTime);
   await page.click('#player-play');
-  await page.waitForTimeout(300);
+  await esperar(async () => (await page.getAttribute('#player-play', 'aria-label')) === 'Pausar', 3000).catch(() => {});
   const tocando = await page.$eval('#player-video', (v) => !v.paused);
   const rotuloPlay = await page.getAttribute('#player-play', 'aria-label');
   // espaco no corpo pausa; espaco num campo de texto nao
   await page.evaluate(() => document.activeElement && document.activeElement.blur());
   await page.keyboard.press('Space');
-  await page.waitForTimeout(150);
+  await esperar(async () => (await page.getAttribute('#player-play', 'aria-label')) === 'Tocar', 3000).catch(() => {});
   const pausadoPorEspaco = await page.$eval('#player-video', (v) => v.paused);
   const tempo = (await page.textContent('#player-tempo')).trim();
+  const visivel = await textoVisivel(page);
   await screenshot(page, 'video-1280-claro.png');
   const r = {
     erroGrande, putsGrande, erroServidor, erroRede, textoEnviando, cancelado, progresso, info,
-    src, aposMais5, aposMenos5, tocando, rotuloPlay, pausadoPorEspaco, tempo,
+    src, aposMais5, aposMenos5, tocando, rotuloPlay, pausadoPorEspaco, tempo, visivel,
     estado: (await api(srvA, 'GET', `/api/projects/${proj.slug}`)).json,
     erros: page.__erros,
   };
@@ -378,7 +404,7 @@ await cenario('focus', async () => {
     if (info.noPassos && info.bloqueado !== 'true' && info.passo === 'video') { achou = info; break; }
   }
   if (achou) await page.keyboard.press('Enter');
-  await page.waitForTimeout(200);
+  await page.waitForSelector('#painel[data-passo="video"]');
   const r = { visitados, achou, painel: await page.getAttribute('#painel', 'data-passo') };
   await ctx.close();
   return r;
@@ -395,7 +421,7 @@ await cenario('xss', async () => {
   const lista = (await page.textContent('#lista-projetos')).trim();
   await page.click(`#lista-projetos .projeto[data-slug="${proj.slug}"]`);
   await esperar(async () => (await page.textContent('#projeto-atual')).includes('<img'));
-  await page.waitForTimeout(300);
+  await page.waitForLoadState('networkidle');
   const r = {
     lista, cabecalho: (await page.textContent('#projeto-atual')).trim(),
     xss: await page.evaluate(() => window.__xss === 1),
@@ -412,7 +438,7 @@ await cenario('csp', async () => {
   const pedidos = [];
   ctx.on('request', (rq) => pedidos.push(rq.url()));
   const page = await abrir(ctx, srvA);
-  await page.waitForTimeout(300);
+  await page.waitForLoadState('networkidle');
   const carga = pedidos.slice();
   const res = await page.evaluate(async () => {
     const violacoes = [];
@@ -429,7 +455,8 @@ await cenario('csp', async () => {
     const inline = document.createElement('script');
     inline.textContent = 'window.__inline = 1';
     document.head.appendChild(inline);
-    await new Promise((r) => setTimeout(r, 600));
+    const fim = Date.now() + 3000;
+    while (violacoes.length < 4 && Date.now() < fim) await new Promise((r) => setTimeout(r, 25));
     img.remove();
     return { violacoes, fetchErro, inline: window.__inline === 1 };
   });
@@ -457,6 +484,91 @@ await cenario('token', async () => {
     semStatus: sem.status(), semTexto, erradoStatus: errado.status(),
     fatal: (await page.textContent('#fatal')).replace(/\s+/g, ' ').trim(),
   };
+  await ctx.close();
+  return r;
+});
+
+// ------------------------------- respostas atrasadas de outro projeto
+await cenario('corrida', async () => {
+  const a = (await api(srvA, 'POST', '/api/projects', { nome: 'Reel A lento' })).json;
+  const b = (await api(srvA, 'POST', '/api/projects', { nome: 'Reel B rapido' })).json;
+  fs.writeFileSync(path.join(srvA.root, a.slug, 'entrada.mp4'), 'falso');
+  const ctx = await contexto();
+  const page = await abrir(ctx, srvA);
+  await page.waitForSelector(`#lista-projetos .projeto[data-slug="${b.slug}"]`);
+  let segura;
+  const solto = new Promise((r) => { segura = r; });
+  await page.route(`**/api/projects/${a.slug}`, async (route) => {
+    await solto;
+    await route.continue();
+  });
+  await page.click(`#lista-projetos .projeto[data-slug="${a.slug}"]`);
+  await page.click(`#lista-projetos .projeto[data-slug="${b.slug}"]`);
+  await esperar(async () => (await page.textContent('#projeto-atual')).includes('Reel B'));
+  segura();
+  await page.waitForLoadState('networkidle');
+  await page.click('#passos .passo[data-passo="video"]');
+  await page.waitForSelector('#arquivo-video', { state: 'attached' });
+  const r = {
+    cabecalho: (await page.textContent('#projeto-atual')).trim(),
+    passos: await estados(page),
+    temInfoVideo: await page.locator('#video-info').count(),
+    storage: await page.evaluate(() => localStorage.getItem('editor-reels:ultimo-projeto')),
+    b: b.slug,
+  };
+  // envio do Reel A termina depois de trocar para o B
+  await page.unroute(`**/api/projects/${a.slug}`);
+  await page.click('#btn-trocar-projeto');
+  await page.click(`#lista-projetos .projeto[data-slug="${a.slug}"]`);
+  await page.click('#passos .passo[data-passo="video"]');
+  await page.waitForSelector('#arquivo-video', { state: 'attached' });
+  const cdp = await ctx.newCDPSession(page);
+  await cdp.send('Network.enable');
+  await cdp.send('Network.emulateNetworkConditions',
+    { offline: false, latency: 20, downloadThroughput: -1, uploadThroughput: 200 * 1024 });
+  await enviar(page, cfg.video);
+  await page.waitForSelector('#envio:not([hidden])');
+  await page.click('#btn-trocar-projeto');
+  await page.click(`#lista-projetos .projeto[data-slug="${b.slug}"]`);
+  await esperar(async () => (await page.locator('#toasts .toast').allTextContents()).some((t) => t.includes('Reel A lento')), 30000);
+  await cdp.send('Network.emulateNetworkConditions',
+    { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await page.waitForLoadState('networkidle');
+  r.depoisEnvio = {
+    cabecalho: (await page.textContent('#projeto-atual')).trim(),
+    toasts: await page.locator('#toasts .toast').allTextContents(),
+    passos: await estados(page),
+    estadoA: (await api(srvA, 'GET', `/api/projects/${a.slug}`)).json.etapas.video,
+    src: await page.$eval('#player-video', (v) => v.getAttribute('src') || ''),
+  };
+  r.erros = page.__erros;
+  await ctx.close();
+  return r;
+});
+
+// ------------------------------- ultimo projeto nao some por falha de rede
+await cenario('rede', async () => {
+  const p = (await api(srvA, 'POST', '/api/projects', { nome: 'Reel rede' })).json;
+  const ctx = await contexto();
+  await ctx.route(`**/api/projects/${p.slug}`, (route) => route.abort('connectionreset'));
+  const page = await ctx.newPage();
+  await page.addInitScript((s) => {
+    if (!sessionStorage.getItem('semeado')) {
+      localStorage.setItem('editor-reels:ultimo-projeto', s);
+      sessionStorage.setItem('semeado', '1');
+    }
+  }, p.slug);
+  await page.goto(srvA.url);
+  await page.waitForSelector('#painel[data-passo]');
+  const comFalha = await page.evaluate(() => localStorage.getItem('editor-reels:ultimo-projeto'));
+  await ctx.unroute(`**/api/projects/${p.slug}`);
+  await api(srvA, 'GET', '/api/projects');
+  // projeto que nao existe mais (404): ai sim esquece
+  await page.evaluate(() => localStorage.setItem('editor-reels:ultimo-projeto', 'nao-existe'));
+  await page.goto(srvA.url);
+  await page.waitForSelector('#painel[data-passo]');
+  const com404 = await page.evaluate(() => localStorage.getItem('editor-reels:ultimo-projeto'));
+  const r = { comFalha, com404, slug: p.slug };
   await ctx.close();
   return r;
 });

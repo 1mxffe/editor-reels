@@ -35,6 +35,8 @@ function ctxPara(id) {
     passo: id,
     slug: app.slug,
     estado: app.estado,
+    /** Projeto aberto AGORA (o `slug` acima e o do momento em que a tela abriu). */
+    slugAtual: () => app.slug,
     config: app.config,
     player: app.player,
     api,
@@ -150,10 +152,14 @@ async function ir(id, { focar = false } = {}) {
 
 /** Recarrega o estado do projeto e repinta barra, cabecalho e player. */
 async function atualizar({ repintarPainel = false } = {}) {
-  if (app.slug) {
+  const slug = app.slug;
+  if (slug) {
     try {
-      app.estado = await api('GET', `/api/projects/${encodeURIComponent(app.slug)}`);
+      const estado = await api('GET', `/api/projects/${encodeURIComponent(slug)}`);
+      if (app.slug !== slug) return; // resposta de um Reel que ja nao esta aberto
+      app.estado = estado;
     } catch (e) {
+      if (app.slug !== slug) return;
       if (e.status === 404 || e.status === 400) {
         toast('Este Reel não existe mais. Escolha outro ou crie um novo.', 'erro');
         fecharProjeto();
@@ -173,7 +179,7 @@ async function abrirProjeto(slug, { passoInicial = null } = {}) {
   app.estado = null;
   gravarUltimo(slug);
   await atualizar();
-  if (!app.slug) return;
+  if (app.slug !== slug) return; // outro Reel foi aberto enquanto este carregava
   ir(passoInicial || proximoPasso());
 }
 
@@ -218,6 +224,8 @@ async function iniciar() {
     fatal('Abra o editor pelo ícone', 'Esta página precisa ser aberta pelo ícone do Editor de Reels; ela não tem a chave de acesso.');
     return;
   }
+  // a chave ja foi lida do <meta>; tira-la da barra de endereco evita que seja copiada
+  try { window.history.replaceState(null, '', window.location.pathname); } catch { /* sem history */ }
   app.player = criarPlayer();
   pintarPassos();
   let config;
@@ -236,8 +244,9 @@ async function iniciar() {
     try {
       app.estado = await api('GET', `/api/projects/${encodeURIComponent(ultimo)}`);
       app.slug = ultimo;
-    } catch {
-      gravarUltimo(null);
+    } catch (e) {
+      // so esquece o Reel se ele nao existe mais; queda de rede nao apaga nada
+      if (e.status === 404 || e.status === 400) gravarUltimo(null);
     }
   }
   let doctor = null;

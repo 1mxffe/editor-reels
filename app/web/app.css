@@ -416,6 +416,13 @@ progress::-moz-progress-bar { background: var(--destaque); }
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .875rem;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.detalhes { font-size: .8125rem; color: var(--texto-suave); }
+.detalhes summary { cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; }
+.detalhes code {
+  display: block; margin-top: 4px; padding: 8px 10px; border-radius: 8px;
+  background: var(--superficie-2); border: 1px solid var(--borda);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow-wrap: anywhere;
+}
 .item-acao { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin-top: 6px; }
 .handle-salvo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 

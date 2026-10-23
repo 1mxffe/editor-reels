@@ -185,12 +185,14 @@ def test_doctor_translated_items(srv, monkeypatch):  # noqa: C901
         assert len(d["itens"]) == 3
         ff = itens["ffmpeg"]
         assert ff["ok"] is True and ff["opcional"] is False and ff["nome"]
-        assert set(ff) == {"id", "nome", "ok", "opcional", "mensagem", "comando"}
+        assert set(ff) == {"id", "nome", "ok", "opcional", "mensagem", "comando", "detalhe"}
+        assert ff["detalhe"] is None
         w = [i for i in d["itens"] if "whisper" in i["id"]][0]
         assert w["ok"] is False and w["opcional"] is True
-        assert "transcri" in w["mensagem"].lower() and w["comando"]
+        assert "texto do vídeo" in w["mensagem"].lower() and w["comando"]
         novo = d["itens"][2]
-        assert novo["nome"] == "item novo do futuro" and novo["mensagem"] == "motivo cru"
+        assert novo["nome"] == "item novo do futuro" and novo["detalhe"] == "motivo cru"
+        assert "motivo cru" not in novo["mensagem"]
         assert novo["comando"] is None
 
 

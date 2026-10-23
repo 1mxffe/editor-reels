@@ -2,18 +2,6 @@
 // colar no Terminal, o botao de instalar o navegador de graficos e o @ do escritorio.
 import { api, el, frase, icone, registrarPasso, toast } from '../nucleo.js';
 
-// Nomes em portugues simples por id (o servidor manda o nome tecnico).
-const NOMES = {
-  python: 'Programa base do editor',
-  ffmpeg: 'Montagem do vídeo',
-  ffprobe: 'Leitura do vídeo',
-  node: 'Desenho dos cards e da capa',
-  disco: 'Espaço livre no disco',
-  whisper: 'Texto do vídeo automático',
-  pillow: 'Imagens da capa',
-  graficos: 'Navegador de gráficos',
-};
-
 const RESUMOS = {
   READY: ['tudo', 'Tudo pronto. O computador tem o que o editor precisa.'],
   'READY WITH LIMITS': ['limites', 'Pronto para usar. Alguns recursos extras ainda faltam.'],
@@ -44,9 +32,12 @@ function linhaItem(it, ctx, recarregar) {
   const status = it.ok ? 'Instalado' : it.opcional ? 'Opcional, ainda não instalado' : 'Falta instalar';
   const conteudo = el('div', { class: 'item-conteudo' },
     el('div', { class: 'item-titulo' },
-      el('strong', {}, NOMES[it.id] || it.nome),
+      el('strong', {}, it.nome),
       el('span', { class: 'item-status' }, status)),
-    it.ok ? null : el('p', { class: 'item-mensagem' }, frase(it.mensagem)));
+    it.ok ? null : el('p', { class: 'item-mensagem' }, frase(it.mensagem)),
+    // motivo tecnico cru do doctor: so para quem for ajudar, recolhido
+    !it.ok && it.detalhe ? el('details', { class: 'detalhes' },
+      el('summary', {}, 'Detalhes técnicos'), el('code', {}, it.detalhe)) : null);
   if (!it.ok && it.comando) {
     const botao = el('button', { type: 'button', class: 'botao botao-secundario copiar',
       'aria-label': `Copiar o comando: ${it.comando}` }, icone('copiar'), el('span', {}, 'Copiar'));
@@ -55,8 +46,10 @@ function linhaItem(it, ctx, recarregar) {
       el('p', { class: 'suave' }, 'Para instalar, abra o app Terminal, cole o comando abaixo e aperte Enter:'),
       el('div', { class: 'comando-linha' }, el('code', {}, it.comando), botao)));
   }
-  if (!it.ok && it.id === 'graficos' && ctx.slug) {
-    conteudo.append(botaoChromium(ctx, recarregar));
+  if (!it.ok && it.id === 'graficos') {
+    conteudo.append(ctx.slug ? botaoChromium(ctx, recarregar)
+      : el('p', { id: 'instalar-dica', class: 'ajuda' },
+        'Abra ou crie um Reel para instalar com um clique. Até lá, use o comando acima.'));
   }
   return el('li', { class: 'item', 'data-id': it.id, 'data-ok': String(it.ok) },
     el('span', { class: `item-marca ${it.ok ? 'sim' : it.opcional ? 'opcional' : 'nao'}`, 'aria-hidden': 'true' },
@@ -64,34 +57,61 @@ function linhaItem(it, ctx, recarregar) {
     conteudo);
 }
 
+// A instalacao continua se a pessoa sair da tela; ao voltar, a tela retoma o acompanhamento.
+let instalando = null; // {id, slug}
+
 function botaoChromium(ctx, recarregar) {
   const aviso = el('p', { class: 'suave', 'aria-live': 'polite' });
   const botao = el('button', { type: 'button', id: 'instalar-chromium', class: 'botao botao-primario' },
     'Instalar o navegador de gráficos');
-  botao.addEventListener('click', async () => {
+  const caixa = el('div', { class: 'item-acao' }, botao, aviso);
+
+  async function acompanhar(id) {
     botao.disabled = true;
     aviso.textContent = 'Instalando… isso pode levar alguns minutos. Pode deixar esta janela aberta.';
+    let falhas = 0;
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (!caixa.isConnected) return; // saiu da tela: para de consultar
+      let job;
+      try {
+        job = await api('GET', `/api/jobs/${encodeURIComponent(id)}`);
+        falhas = 0;
+      } catch (e) {
+        if (e.status === 404) job = { estado: 'erro', mensagem: '' };
+        else {
+          // falha passageira: a instalacao pode seguir rodando; nao libera o botao
+          falhas += 1;
+          aviso.textContent = falhas > 3 ? 'Sem resposta do editor; tentando de novo…' : aviso.textContent;
+          continue;
+        }
+      }
+      if (job.estado === 'rodando') continue;
+      instalando = null;
+      if (job.estado === 'ok') {
+        toast('Navegador de gráficos instalado.', 'ok');
+        recarregar();
+      } else {
+        aviso.textContent = job.mensagem ? `Não deu certo: ${frase(job.mensagem)}` : 'A instalação foi interrompida.';
+        botao.disabled = false;
+      }
+      return;
+    }
+  }
+
+  botao.addEventListener('click', async () => {
+    botao.disabled = true;
     try {
       const { job_id: id } = await api('POST', `/api/projects/${encodeURIComponent(ctx.slug)}/jobs/instalar-chromium`, {});
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const job = await api('GET', `/api/jobs/${encodeURIComponent(id)}`);
-        if (job.estado === 'rodando') continue;
-        if (job.estado === 'ok') {
-          toast('Navegador de gráficos instalado.', 'ok');
-          recarregar();
-        } else {
-          aviso.textContent = job.mensagem ? `Não deu certo: ${frase(job.mensagem)}` : 'A instalação foi interrompida.';
-          botao.disabled = false;
-        }
-        return;
-      }
+      instalando = { id, slug: ctx.slug };
+      acompanhar(id);
     } catch (e) {
       aviso.textContent = e.mensagem || 'Não foi possível começar a instalação.';
       botao.disabled = false;
     }
   });
-  return el('div', { class: 'item-acao' }, botao, aviso);
+  if (instalando) acompanhar(instalando.id);
+  return caixa;
 }
 
 function secaoProgramas(ctx) {

@@ -39,6 +39,10 @@ function enviar(arquivo, ctx) {
       + 'Exporte o vídeo em tamanho menor e tente de novo.');
   }
   const xhr = new XMLHttpRequest();
+  const nomeReel = (ctx.estado && ctx.estado.nome) || '';
+  const tinhaVideo = !!(ctx.estado && ctx.estado.etapas.video === 'pronto');
+  // o envio pode terminar com outro Reel aberto: entao so avisa, sem mexer na tela atual
+  const outroAberto = () => ctx.slugAtual() !== slug;
   envio = { slug, xhr, enviado: 0, total: arquivo.size, conferindo: false };
   xhr.open('PUT', `/api/projects/${encodeURIComponent(slug)}/video`);
   xhr.setRequestHeader('X-Token', TOKEN);
@@ -56,6 +60,14 @@ function enviar(arquivo, ctx) {
   const terminar = () => { if (envio && envio.xhr === xhr) envio = null; };
   xhr.onload = () => {
     terminar();
+    if (xhr.status === 200 && outroAberto()) {
+      aviso = null;
+      toast(`O vídeo do Reel "${nomeReel}" terminou de enviar.`, 'ok');
+      return;
+    }
+    if (xhr.status !== 200 && outroAberto()) {
+      toast(`O envio do vídeo do Reel "${nomeReel}" não deu certo. Abra esse Reel para ver o motivo.`, 'erro');
+    }
     if (xhr.status === 200) {
       aviso = null;
       ctx.player.limpar();
@@ -79,7 +91,7 @@ function enviar(arquivo, ctx) {
   };
   xhr.onabort = () => {
     terminar();
-    avisar(slug, 'info', ctx.estado && ctx.estado.etapas.video === 'pronto'
+ avisar(slug, 'info', tinhaVideo
       ? 'Envio cancelado. O vídeo que já estava no Reel continua guardado.'
       : 'Envio cancelado. Nenhum vídeo foi guardado.');
   };

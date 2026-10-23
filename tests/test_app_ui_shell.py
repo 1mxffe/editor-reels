@@ -24,6 +24,8 @@ BROWSERS = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers")
 SCREENS = REPO / ".superpowers" / "sdd" / "2026-10-23-interface-web" / "screens"
 MAX_UPLOAD = 2 * 1024 * 1024
 PASSOS = ["video", "cortes", "legendas", "estilo", "preview", "graficos", "capa", "final"]
+PROIBIDOS = re.compile(r"\b(ffmpeg|ffprobe|chromium|playwright|node|pillow|whisper|token|api|json|"
+                       r"job|tarefa|ass|srt|codec)\b", re.IGNORECASE)
 JARGAO = ("transcri", "ASS", "ffmpeg", "ffprobe", "slug", "JSON", "render", "upload", "job")
 
 
@@ -133,13 +135,14 @@ def test_steps_locked_until_previous_ready(results):
     assert "Vídeo recebido" in r["voltou"], "voltar ao passo nao perde o que foi feito"
     assert "Reel bloqueio" in r["aposRecarregar"], "reabre o ultimo projeto"
     assert r["storage"] == ["editor-reels:ultimo-projeto"], "localStorage so guarda o ultimo projeto"
+    assert r["busca"] == "", "a chave sai da barra de endereco depois de lida"
 
 
 def test_install_screen_lists_items_and_handle_form(results):
     r = _ok(results, "install")
     assert r["telaInicial"] == "instalacao", "primeira execucao abre a Instalacao"
     itens = {i["id"]: i for i in r["itens"]}
-    assert list(itens) == ["python", "ffmpeg", "disco", "whisper", "graficos"]
+    assert list(itens) == ["python", "ffmpeg", "disco", "whisper", "pillow", "node", "graficos"]
     assert itens["python"]["ok"] == "true" and "✓" in itens["python"]["texto"]
     assert itens["ffmpeg"]["ok"] == "false" and "✗" in itens["ffmpeg"]["texto"]
     assert itens["ffmpeg"]["comando"] == "brew install ffmpeg" and itens["ffmpeg"]["copiar"]
@@ -149,12 +152,49 @@ def test_install_screen_lists_items_and_handle_form(results):
     assert r["botaoCopiar"] == "Copiado"
     assert "faltam itens" in r["resumo"].lower() or "falta" in r["resumo"].lower()
     assert r["chromiumSemProjeto"] == 0 and r["comandoChromium"] == 1
+    assert "Abra ou crie um Reel para instalar com um clique" in r["dicaSemProjeto"]
+    assert r["detalhes"], "motivo tecnico do doctor fica em Detalhes tecnicos"
+    for d in r["detalhes"]:
+        assert d["resumo"] == "Detalhes técnicos" and d["aberto"] is False
     assert r["chromiumComProjeto"] == 1 and "navegador de gráficos" in r["textoBotao"]
     assert "@ inválido" in r["erroHandle"], "mensagem do servidor por extenso"
     assert "@gutmannesilva" in r["salvo"]
     assert r["brand"] == {"handles": ["@gutmannesilva"], "completa": True}
     for emoji in ("✔", "✘", "✅", "❌"):
         assert emoji not in r["textoTela"]
+
+
+def test_visible_text_has_no_jargon(results):
+    """Tudo o que a pessoa le nas telas de Instalacao (com itens faltando) e Video:
+    nenhum termo tecnico. Comandos copiaveis e o <details> recolhido ficam de fora."""
+    telas = dict(_ok(results, "install")["visivel"])
+    telas["video-enviado"] = _ok(results, "upload")["visivel"]
+    for tela, texto in telas.items():
+        achados = sorted({m.group(0) for m in PROIBIDOS.finditer(texto)})
+        assert not achados, (tela, achados)
+    assert "Detalhes técnicos" in telas["instalacao"]
+
+
+def test_stale_response_of_previous_project_ignored(results):
+    r = _ok(results, "corrida")
+    assert "Reel B" in r["cabecalho"] and "Reel A" not in r["cabecalho"]
+    passos = {p["id"]: p for p in r["passos"]}
+    assert passos["video"]["estado"] != "pronto", "estado do Reel A nao pode vazar para o B"
+    assert passos["cortes"]["bloqueado"] is True
+    assert r["temInfoVideo"] == 0
+    assert r["storage"] == r["b"]
+    d = r["depoisEnvio"]
+    assert "Reel B" in d["cabecalho"], "terminar o envio do A nao troca de projeto"
+    assert any("Reel A lento" in t for t in d["toasts"])
+    assert d["estadoA"] == "pronto"
+    assert {p["id"]: p for p in d["passos"]}["video"]["estado"] != "pronto"
+    assert d["src"] == "", "o player do Reel B nao mostra o video do A"
+
+
+def test_last_project_kept_on_network_error(results):
+    r = _ok(results, "rede")
+    assert r["comFalha"] == r["slug"], "falha de rede nao apaga o ultimo projeto"
+    assert r["com404"] is None, "projeto que nao existe mais e esquecido"
 
 
 def test_video_upload_progress_and_error_message(results):
@@ -276,6 +316,17 @@ def srv(tmp_path):
     root = tmp_path / "projects"
     root.mkdir()
     return make_server(root, TOKEN, test_mode=True)
+
+
+def test_referrer_policy_no_referrer(srv, tmp_path):
+    with client(srv) as c:
+        slug = c.request("POST", "/api/projects", body={"nome": "Ref"}).json()["slug"]
+        (srv.app.root / slug / "entrada.mp4").write_bytes(b"0123456789")
+        for r in (c.get(f"/?t={TOKEN}", token=False), c.get("/", token=False),
+                  c.get("/api/ping"), c.get("/static/app.css", token=False),
+                  c.get(f"/api/projects/{slug}/arquivos/entrada.mp4"),
+                  c.get(f"/api/projects/{slug}/arquivos/entrada.mp4", headers={"Range": "bytes=99-"})):
+            assert r.getheader("Referrer-Policy") == "no-referrer", r.status
 
 
 def test_static_serves_fonts_and_step_modules(srv):
