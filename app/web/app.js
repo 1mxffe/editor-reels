@@ -50,7 +50,7 @@ function ctxPara(id) {
 // ------------------------------------------------------------- barra de passos
 function rotuloEstado(estado, bloqueado) {
   if (bloqueado) return 'Bloqueado';
-  return { pronto: 'Pronto', andamento: 'Em andamento', pendente: 'A fazer' }[estado];
+  return { pronto: 'Pronto', andamento: 'Agora', pendente: 'A fazer' }[estado];
 }
 
 function pintarPassos() {
@@ -101,6 +101,7 @@ function pintarProjeto() {
 function pintarPlayer() {
   if (!app.player) return;
   const arq = app.estado && app.estado.arquivos;
+  document.body.toggleAttribute('data-tem-video', !!(app.slug && arq && (arq.final || arq.preview || arq.entrada)));
   if (!app.slug || !arq) return app.player.limpar();
   if (arq.final) app.player.definir(app.slug, arq.final, { rotulo: 'Versão final' });
   else if (arq.preview) app.player.definir(app.slug, arq.preview, { rotulo: 'Prévia mais recente' });
@@ -119,6 +120,7 @@ function render() {
     el('h1', { id: 'painel-titulo' }, def.tituloPainel || def.titulo));
   const corpo = el('div', { class: 'painel-corpo' });
   painel.dataset.passo = id;
+  document.body.dataset.tela = id;
   painel.setAttribute('aria-labelledby', 'painel-titulo');
   painel.replaceChildren(topo, corpo);
   try {
