@@ -23,7 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import brand  # noqa: E402
+import common  # noqa: E402
 import instalacao  # noqa: E402
+import revisao_api  # noqa: E402
 import tarefas  # noqa: E402
 from jobs import ID_RE as JOB_ID_RE, JobBusy, Jobs  # noqa: E402
 from projects import EXT_VIDEO, Projects, ProjectsError  # noqa: E402
@@ -32,6 +34,7 @@ WEB_DIR = Path(__file__).resolve().parent / "web"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MAX_JSON = 64 * 1024
+MAX_JSON_REVISAO = 1024 * 1024  # edicao de legendas
 BLOCO = 1024 * 1024
 RANGE_RE = re.compile(r"bytes=([0-9]{0,18})-([0-9]{0,18})", re.ASCII)
 DIGITOS_RE = re.compile(r"[0-9]+", re.ASCII)
@@ -266,12 +269,12 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return int(bruto)
 
-    def _read_json(self):
+    def _read_json(self, limite: int = MAX_JSON):
         """Corpo JSON (<= 64 KiB). Devolve (ok, obj); em falha a resposta ja foi enviada."""
         n = self._content_length()
         if n is None:
             return False, None
-        if n > MAX_JSON:
+        if n > limite:
             self.error(413, "Corpo grande demais")
             return False, None
         bruto = self.rfile.read(n) if n else b""
@@ -320,6 +323,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not self._permitir("POST"):
                     return
                 return self.api_job_start(slug, unquote(resto[2]))
+            if resto[1] == "revisao" and len(resto) == 2:
+                if not self._permitir("GET", "PUT"):
+                    return
+                return self.api_revisao(slug)
+            if resto[1] == "etapas" and len(resto) == 3 and resto[2] == "legendas":
+                if not self._permitir("PUT"):
+                    return
+                return self.api_etapa_legendas(slug)
             if resto[1] == "arquivos" and len(resto) == 3:
                 if not self._permitir("GET"):
                     return
@@ -358,12 +369,75 @@ class Handler(BaseHTTPRequestHandler):
             argv = tarefas.argv(tipo, d, **tarefas.validar(tipo, corpo))
         except ValueError as e:
             return self.error(400, str(e))
+        trava = revisao_api.trava(slug)
+        if not trava.acquire(blocking=False):
+            return self.error(409, "a revisão deste projeto está em andamento")
         try:
             job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT,
                                          tarefas.saidas(tipo), ocultar=d)
         except JobBusy:
             return self.error(409, "já existe uma tarefa rodando neste projeto")
+        finally:
+            trava.release()
         self.json_reply(202, {"job_id": job_id})
+
+    # -- revisao --------------------------------------------------------------
+    def api_revisao(self, slug: str):
+        d = self._projeto(slug)
+        if d is None:
+            return
+        decisoes = None
+        if self.command == "PUT":
+            ok, corpo = self._read_json(MAX_JSON_REVISAO)
+            if not ok:
+                return
+            try:
+                decisoes = revisao_api.validar(corpo)
+            except revisao_api.RevisaoErro as e:
+                return self.error(e.status, e.msg)
+        else:
+            self._drenar()
+        trava = revisao_api.trava(slug)
+        if not trava.acquire(timeout=revisao_api.TIMEOUT * 2):
+            return self.error(409, "a revisão deste projeto já está em andamento")
+        try:
+            if self.app.jobs.ativo_em(slug):
+                return self.error(409, "há uma tarefa rodando neste projeto; aguarde terminar")
+            try:
+                if decisoes is None:
+                    res = revisao_api.construir(d)
+                else:
+                    res = revisao_api.aplicar(d, decisoes)
+            except revisao_api.RevisaoErro as e:
+                return self.error(e.status, e.msg)
+        finally:
+            trava.release()
+        self.json_reply(200, res)
+
+    def api_etapa_legendas(self, slug: str):
+        d = self._projeto(slug)
+        if d is None:
+            return
+        ok, corpo = self._read_json()
+        if not ok:
+            return
+        if not (isinstance(corpo, dict) and set(corpo) == {"confirmado"}
+                and isinstance(corpo["confirmado"], bool)):
+            return self.error(400, 'envie {"confirmado": true|false}')
+        with self.app.replace_lock:
+            atual = {}
+            try:
+                lido = json.loads((d / "etapas.json").read_text(encoding="utf-8"))
+                if isinstance(lido, dict):
+                    atual = lido
+            except (OSError, ValueError):
+                pass
+            atual["legendas"] = corpo["confirmado"]
+            try:
+                common.write_json_atomic(d / "etapas.json", atual)
+            except OSError:
+                return self.error(500, "não foi possível gravar a etapa")
+        self.json_reply(200, {"legendas": corpo["confirmado"]})
 
     # -- projetos ---------------------------------------------------------------
     def api_projects(self):

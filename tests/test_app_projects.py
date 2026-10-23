@@ -186,3 +186,10 @@ def test_symlinked_project_folder_rejected(projs, tmp_path):
     with pytest.raises(ProjectsError):
         projs.state("lnk")
     assert [p["slug"] for p in projs.list()] == ["ok"]
+
+
+def test_state_ignores_etapas_with_wrong_types(projs):
+    d = projs.root / projs.create("t")["slug"]
+    for bruto in (b'{"legendas": "sim"}', b'{"legendas": 1}', b'{"legendas": null}', b"{x", b'"a"'):
+        _touch(d / "etapas.json", bruto)
+        assert projs.state("t")["etapas"]["legendas"] == "pendente"
