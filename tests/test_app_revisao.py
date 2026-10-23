@@ -88,8 +88,11 @@ def test_put_idempotent_twice_same_decisions(srv, slug):
            "notes": [{"t": 1, "text": "ok"}]}
     with client(srv) as c:
         a = _put(c, slug, dec)
+        d = srv.app.projects.path(slug)
+        arq = {n: (d / n).read_bytes() for n in ("cortes.json", "legendas.json", "revisao.json")}
         b = _put(c, slug, dec)
         assert a.status == b.status == 200 and a.json() == b.json()
+        assert arq == {n: (d / n).read_bytes() for n in arq}
 
 
 @pytest.mark.parametrize("corpo", [
@@ -102,16 +105,27 @@ def test_put_idempotent_twice_same_decisions(srv, slug):
     [1, 2],
     b'"texto"',
     {"cuts_added": [{"start": 5, "end": 99}]},
+    {"notes": [{"t": 1, "text": "\ud800"}]},
+    {"notes": [{"t": 1, "text": "a\u0000b"}]},
+    {"notes": [{"t": 1, "text": "a\u001bb"}]},
+    {"caption_edits": {"0": "a\u0007b"}},
+    {"graphics": {"x" * 65: "keep"}},
+    {"graphics": {"a b/c": "keep"}},
+    {"graphics": {f"g{i}": "keep" for i in range(501)}},
+    {"caption_edits": {"0": "a" * 501}},
+    {"caption_edits": {"0": {"text": "a", "base_text": "b" * 2001}}},
+    {"notes": [{"t": 1, "text": "n" * 2001}]},
+    {"notes": [{"t": 1, "text": "n"}] * 501},
 ])
 def test_put_invalid_decisions_400_no_traceback(srv, slug, corpo):
     d = srv.app.projects.path(slug)
-    antes = (d / "cortes.json").read_bytes()
+    antes = {f.name: f.read_bytes() for f in d.iterdir()}
     with client(srv) as c:
         r = _put(c, slug, corpo)
         assert r.status == 400
         msg = r.json()["erro"]
         assert msg and "Traceback" not in msg and "File \"" not in msg
-    assert (d / "cortes.json").read_bytes() == antes
+    assert {f.name: f.read_bytes() for f in d.iterdir()} == antes
 
 
 def test_put_body_too_large_413_and_json_errors(srv, slug):
@@ -144,27 +158,28 @@ def test_put_409_when_job_active(srv, slug, monkeypatch):
     monkeypatch.setattr(srv.app.jobs, "ativo_em", lambda s: {"id": "x"})
     with client(srv) as c:
         assert _put(c, slug, {}).status == 409
-        assert c.get(_rev(slug)).status == 409
+        assert c.get(_rev(slug)).status == 200  # leitura continua permitida
 
 
 def test_concurrent_revisions_are_serialized(srv, slug, monkeypatch):
     import revisao_api
     ativos, pico = [0], [0]
     mu = threading.Lock()
-    real = subprocess.run
+    real = subprocess.Popen
 
-    def lento(*a, **k):
-        with mu:
-            ativos[0] += 1
-            pico[0] = max(pico[0], ativos[0])
-        time.sleep(0.15)
-        try:
-            return real(*a, **k)
-        finally:
+    class Lento(real):
+        def communicate(self, *a, **k):
             with mu:
-                ativos[0] -= 1
+                ativos[0] += 1
+                pico[0] = max(pico[0], ativos[0])
+            time.sleep(0.15)
+            try:
+                return super().communicate(*a, **k)
+            finally:
+                with mu:
+                    ativos[0] -= 1
 
-    monkeypatch.setattr(revisao_api.subprocess, "run", lento)
+    monkeypatch.setattr(revisao_api.subprocess, "Popen", Lento)
     res = []
     with client(srv) as c:
         def uma():
@@ -178,13 +193,19 @@ def test_concurrent_revisions_are_serialized(srv, slug, monkeypatch):
 def test_script_timeout_500(srv, slug, monkeypatch):
     import revisao_api
 
-    def estoura(*a, **k):
-        raise subprocess.TimeoutExpired("x", 1)
-
-    monkeypatch.setattr(revisao_api.subprocess, "run", estoura)
+    monkeypatch.setattr(revisao_api, "TIMEOUT", 1)
+    fake = Path(srv.app.root).parent / "lento.py"
+    fake.write_text("import subprocess, sys, time\n"
+                    "subprocess.Popen(['sleep', '77'])\ntime.sleep(60)\n")
+    monkeypatch.setattr(revisao_api, "SCRIPT", fake)
+    d = srv.app.projects.path(slug)
     with client(srv) as c:
         r = c.get(_rev(slug))
         assert r.status == 500 and "tempo" in r.json()["erro"]
+        assert _put(c, slug, {}).status == 500
+    assert list(d.glob(".decisoes-*")) == []
+    out = subprocess.run(["pgrep", "-f", "sleep 77"], capture_output=True, text=True).stdout
+    assert out.strip() == ""  # o neto foi morto junto (grupo de processos)
 
 
 def test_legendas_confirm_marks_step(srv, slug):
@@ -213,3 +234,117 @@ def test_job_start_409_while_revision_runs(srv, slug):
             assert r.status == 409
         finally:
             t.release()
+
+
+def test_deep_json_and_lone_surrogate_raw_400(srv, slug):
+    with client(srv) as c:
+        prof = b"[" * 990 + b"]" * 990
+        assert _put(c, slug, b'{"notes": ' + prof + b"}").status == 400
+        assert _put(c, slug, b'{"notes": [{"t": 1, "text": "\\ud800"}]}').status == 400
+
+
+def test_error_messages_hide_absolute_paths(srv, slug):
+    d = srv.app.projects.path(slug)
+    with client(srv) as c:
+        for nome in ("cortes.json", "graficos.json", "legendas.json", "transcricao.json"):
+            alvo = d / nome
+            original = alvo.read_bytes() if alvo.exists() else None
+            alvo.write_text("{x")
+            for r in (c.get(_rev(slug)), _put(c, slug, {"notes": []})):
+                assert r.status == 400, (nome, r.body)
+                msg = r.json()["erro"]
+                assert str(d) not in msg and str(d.parent) not in msg, msg
+                assert "/tmp" not in msg and "/home" not in msg, msg
+            if original is None:
+                alvo.unlink()
+            else:
+                alvo.write_bytes(original)
+
+
+def test_script_missing_or_crash_is_500(srv, slug, monkeypatch, tmp_path):
+    import revisao_api
+    ruim = tmp_path / "ruim.py"
+    ruim.write_text("import sys\nsys.stderr.write('Traceback...\\n')\nsys.exit(1)\n")
+    crash = tmp_path / "crash.py"
+    crash.write_text("raise SystemExit(3)\n")
+    with client(srv) as c:
+        for script in (tmp_path / "nao-existe.py", crash, ruim):
+            monkeypatch.setattr(revisao_api, "SCRIPT", script)
+            r = c.get(_rev(slug))
+            assert r.status == 500, script
+            assert str(tmp_path) not in r.json()["erro"] and "Traceback" not in r.json()["erro"]
+
+
+def test_graphics_state_cap(srv, slug):
+    with client(srv) as c:
+        for lote in range(5):
+            r = _put(c, slug, {"graphics": {f"g{lote}-{i}": "keep" for i in range(100)}})
+            assert r.status == 200
+        r = _put(c, slug, {"graphics": {"extra": "keep"}})
+        assert r.status == 400 and "gráficos" in r.json()["erro"]
+
+
+def test_lock_wait_times_out_409(srv, slug, monkeypatch):
+    import revisao_api
+    monkeypatch.setattr(revisao_api, "ESPERA_TRAVA", 0.2)
+    t = revisao_api.trava(slug)
+    t.acquire()
+    try:
+        with client(srv) as c:
+            r = _put(c, slug, {})
+            assert r.status == 409 and "outra edição" in r.json()["erro"]
+    finally:
+        t.release()
+
+
+def test_orphan_decisions_tmp_swept(srv, slug):
+    d = srv.app.projects.path(slug)
+    (d / ".decisoes-abc.tmp").write_text("{}")
+    with client(srv) as c:
+        assert _put(c, slug, {}).status == 200
+    assert list(d.glob(".decisoes-*")) == []
+
+
+def test_job_start_409_has_codes(srv, slug):
+    import revisao_api
+    with client(srv) as c:
+        t = revisao_api.trava(slug)
+        t.acquire()
+        try:
+            r = c.request("POST", f"/api/projects/{slug}/jobs/transcrever", body={})
+            assert r.json()["codigo"] == "revisao_em_andamento"
+        finally:
+            t.release()
+
+
+def test_confirm_legendas_without_transcription_409(srv):
+    p = srv.app.projects.create("Vazio")
+    with client(srv) as c:
+        r = c.request("PUT", f"/api/projects/{p['slug']}/etapas/legendas", body={"confirmado": True})
+        assert r.status == 409
+        assert c.request("PUT", f"/api/projects/{p['slug']}/etapas/legendas",
+                         body={"confirmado": False}).status == 200
+
+
+def test_413_2mib_stable(srv, slug):
+    with client(srv) as c:
+        for _ in range(100):
+            assert _put(c, slug, b"x" * (2 * 1024 * 1024)).status == 413
+
+
+def test_real_flow_with_ffmpeg(srv, make_sample):
+    p = srv.app.projects.create("Real")
+    d = srv.app.projects.path(p["slug"])
+    import shutil
+    shutil.copy(make_sample, d / "entrada.mp4")
+    (d / "transcricao.json").write_text(json.dumps({"duration": 6.0, "words": [
+        {"w": "Teste", "start": 0.5, "end": 1.0}, {"w": "real.", "start": 1.0, "end": 2.0}]}))
+    subprocess.run([sys.executable, "-I", str(repo_root / "scripts" / "cut.py"), "detect", str(d / "transcricao.json"),
+                    str(d / "cortes.json")],
+                   check=True, cwd=repo_root, capture_output=True)
+    with client(srv) as c:
+        antes = c.get(_rev(p["slug"])).json()
+        assert antes["cuts"]
+        cid = antes["cuts"][0]["id"]
+        depois = _put(c, p["slug"], {"cuts_removed": [cid]}).json()
+        assert not [x for x in depois["cuts"] if x["id"] == cid and x["active"]]

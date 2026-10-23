@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MAX_JSON = 64 * 1024
 MAX_JSON_REVISAO = 1024 * 1024  # edicao de legendas
 BLOCO = 1024 * 1024
+MAX_DRENAR = 16 * 1024 * 1024  # corpo descartado antes de fechar em erro; maior que isso so fecha
 RANGE_RE = re.compile(r"bytes=([0-9]{0,18})-([0-9]{0,18})", re.ASCII)
 DIGITOS_RE = re.compile(r"[0-9]+", re.ASCII)
 MAX_NOME = 200
@@ -145,12 +146,18 @@ class Handler(BaseHTTPRequestHandler):
         if headers is None:
             return
         bruto = headers.get("Content-Length") or "0"
-        if not DIGITOS_RE.fullmatch(bruto) or len(bruto) > 7:
+        if not DIGITOS_RE.fullmatch(bruto) or len(bruto) > 9:
             return
         n = int(bruto)
-        if 0 < n <= BLOCO:
+        # descarta ate MAX_DRENAR em blocos (o timeout do socket limita clientes lentos);
+        # acima disso a conexao e fechada com o corpo pendente (o cliente pode ver RST)
+        if 0 < n <= MAX_DRENAR:
             try:
-                self.rfile.read(n)
+                while n > 0:
+                    lido = self.rfile.read(min(BLOCO, n))
+                    if not lido:
+                        break
+                    n -= len(lido)
             except OSError:
                 pass
 
@@ -371,12 +378,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(400, str(e))
         trava = revisao_api.trava(slug)
         if not trava.acquire(blocking=False):
-            return self.error(409, "a revisão deste projeto está em andamento")
+            return self.json_reply(409, {"erro": "a revisão deste projeto está em andamento",
+                                         "codigo": "revisao_em_andamento"})
         try:
             job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT,
                                          tarefas.saidas(tipo), ocultar=d)
         except JobBusy:
-            return self.error(409, "já existe uma tarefa rodando neste projeto")
+            return self.json_reply(409, {"erro": "já existe uma tarefa rodando neste projeto",
+                                         "codigo": "tarefa_rodando"})
         finally:
             trava.release()
         self.json_reply(202, {"job_id": job_id})
@@ -398,10 +407,11 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._drenar()
         trava = revisao_api.trava(slug)
-        if not trava.acquire(timeout=revisao_api.TIMEOUT * 2):
-            return self.error(409, "a revisão deste projeto já está em andamento")
+        if not trava.acquire(timeout=revisao_api.ESPERA_TRAVA):
+            return self.error(409, "outra edição está em andamento neste projeto; tente de novo")
         try:
-            if self.app.jobs.ativo_em(slug):
+            # GET so le (regera review.json) e segue permitido com tarefa ativa; PUT nao
+            if decisoes is not None and self.app.jobs.ativo_em(slug):
                 return self.error(409, "há uma tarefa rodando neste projeto; aguarde terminar")
             try:
                 if decisoes is None:
@@ -424,6 +434,8 @@ class Handler(BaseHTTPRequestHandler):
         if not (isinstance(corpo, dict) and set(corpo) == {"confirmado"}
                 and isinstance(corpo["confirmado"], bool)):
             return self.error(400, 'envie {"confirmado": true|false}')
+        if corpo["confirmado"] and not (d / "transcricao.json").is_file():
+            return self.error(409, "transcreva o vídeo primeiro")
         with self.app.replace_lock:
             atual = {}
             try:
