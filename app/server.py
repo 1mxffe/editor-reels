@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import brand  # noqa: E402
 import instalacao  # noqa: E402
+import tarefas  # noqa: E402
+from jobs import ID_RE as JOB_ID_RE, JobBusy, Jobs  # noqa: E402
 from projects import EXT_VIDEO, Projects, ProjectsError  # noqa: E402
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -87,7 +89,7 @@ class App:
         self.root = Path(root)
         self.token = token
         self.projects = Projects(self.root)
-        self.jobs = None  # T4 preenche
+        self.jobs = Jobs(self.root)  # orfaos 'rodando' viram erro
         self.brand_path = REPO_ROOT / "brand" / "brand.json"
         self.replace_lock = threading.Lock()  # troca do entrada.<ext> + limpeza
 
@@ -314,11 +316,54 @@ class Handler(BaseHTTPRequestHandler):
                 if not self._permitir("PUT"):
                     return
                 return self.api_upload(slug)
+            if resto[1] == "jobs" and len(resto) == 3:
+                if not self._permitir("POST"):
+                    return
+                return self.api_job_start(slug, unquote(resto[2]))
             if resto[1] == "arquivos" and len(resto) == 3:
                 if not self._permitir("GET"):
                     return
                 return self.api_arquivo(slug, unquote(resto[2]))
+        if path.startswith("/api/jobs/"):
+            resto = path[len("/api/jobs/"):].split("/")
+            if JOB_ID_RE.fullmatch(resto[0]):
+                if len(resto) == 1:
+                    if not self._permitir("GET"):
+                        return
+                    try:
+                        return self.json_reply(200, self.app.jobs.get(resto[0]))
+                    except KeyError:
+                        return self.error(404, "Tarefa não encontrada")
+                if len(resto) == 2 and resto[1] == "cancelar":
+                    if not self._permitir("POST"):
+                        return
+                    self._drenar()
+                    return self.json_reply(200, {"ok": self.app.jobs.cancel(resto[0])})
+            return self.error(404, "Tarefa não encontrada")
         self.error(404, "Rota não encontrada")
+
+    # -- tarefas ------------------------------------------------------------------
+    def api_job_start(self, slug: str, tipo: str):
+        d = self._projeto(slug)
+        if d is None:
+            return
+        if tipo not in tarefas.TIPOS:
+            return self.error(404, "Tipo de tarefa desconhecido")
+        ok, corpo = self._read_json()
+        if not ok:
+            return
+        if corpo is None:
+            corpo = {}
+        try:
+            argv = tarefas.argv(tipo, d, **tarefas.validar(tipo, corpo))
+        except ValueError as e:
+            return self.error(400, str(e))
+        try:
+            job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT,
+                                         tarefas.saidas(tipo))
+        except JobBusy:
+            return self.error(409, "já existe uma tarefa rodando neste projeto")
+        self.json_reply(202, {"job_id": job_id})
 
     # -- projetos ---------------------------------------------------------------
     def api_projects(self):

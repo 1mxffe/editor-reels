@@ -228,7 +228,7 @@ def test_binds_loopback_only(srv):
 
 
 def test_app_object(srv):
-    assert srv.app.token == TOKEN and srv.app.jobs is None
+    assert srv.app.token == TOKEN and srv.app.jobs.root == srv.app.root
     assert srv.app.projects.root == srv.app.root
     srv.server_close()
 
