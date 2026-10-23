@@ -1,7 +1,7 @@
 // Casca da pagina: barra de passos, painel, player e troca de projeto.
 // Os passos de verdade vivem em passos/*.js e se registram via registrarPasso.
 import {
-  ORDEM, TOKEN_VALIDO, api, bloqueios, el, gravarUltimo, icone, lerUltimo, obrigatorio, passo,
+  ORDEM, TOKEN, TOKEN_VALIDO, api, bloqueios, el, gravarUltimo, icone, lerUltimo, obrigatorio, passo,
   passoPronto, quandoChaveInvalida, registrarPasso, toast, urlArquivo, Erro,
 } from './nucleo.js';
 import { criarPlayer } from './player.js';
@@ -229,12 +229,23 @@ for (const ev of ['dragover', 'drop']) {
   });
 }
 
+// ------------------------------------------------------------------ batida
+// Avisa o editor que a pagina continua aberta; sem batida (e sem trabalho rodando)
+// ele fecha sozinho depois de 2 minutos. Falha e silenciosa: a proxima tenta de novo.
+const BATIDA_MS = 10_000;
+function batida() {
+  fetch('/api/heartbeat', { method: 'POST', headers: { 'X-Token': TOKEN }, keepalive: true })
+    .catch(() => {});
+}
+
 // ----------------------------------------------------------------- inicio
 async function iniciar() {
   if (!TOKEN_VALIDO) {
     fatal('Abra o editor pelo ícone', 'Esta página precisa ser aberta pelo ícone do Editor de Reels; ela não tem a chave de acesso.');
     return;
   }
+  batida();
+  setInterval(batida, BATIDA_MS);
   app.player = criarPlayer();
   pintarPassos();
   let config;

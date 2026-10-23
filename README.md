@@ -6,6 +6,19 @@ repetições, queima legendas estáticas por frase e renderiza preview ou versã
 final. O escritório revisa o texto antes de gravar; a ferramenta não confere o
 conteúdo do texto. Nada é publicado automaticamente.
 
+## Interface (para quem não usa o Terminal)
+
+Dois cliques em **`Abrir Editor.command`** abrem o editor no Google Chrome: uma
+página com os passos Vídeo, Cortes, Legendas, Estilo, Preview, Gráficos, Capa e
+Final, sem precisar do Claude Code. Instalação, uso e o que fazer se algo falhar,
+em português simples: **[COMO-USAR.md](COMO-USAR.md)**.
+
+Por baixo, o lançador roda `python3 -I app/server.py` (servidor só em
+`127.0.0.1`, porta livre, chave de acesso no endereço `?t=`; `--porta N` fixa a
+porta e `--sem-navegador` só imprime o endereço). Um segundo lançamento reabre a
+mesma página (`projects/.app.json`); o servidor fecha sozinho 2 minutos depois de
+a página parar de dar sinal, se nenhuma tarefa estiver rodando.
+
 ## Requisitos
 
 - Mac ou Linux
@@ -15,7 +28,8 @@ conteúdo do texto. Nada é publicado automaticamente.
 - Para cards de gráfico e capa automática (opcional): `npm i -g playwright`,
   `npx playwright install chromium`; os cards pedem também ffmpeg com `libvpx-vp9`
   (ver `references/graficos.md` e `references/capa.md`)
-- `pip install -r requirements.txt` (faster-whisper para transcrição, Pillow, pytest)
+- `pip install -r requirements.txt` (faster-whisper para transcrição, Pillow, pytest;
+  no Python do Homebrew: `pip install --break-system-packages -r requirements.txt`)
 
 ## Verificar o ambiente
 
@@ -27,7 +41,7 @@ A última linha é `READY`, `READY WITH LIMITS` (falta item opcional, como o
 faster-whisper, o Pillow e o node da capa ou o Chromium dos gráficos) ou `MISSING`
 (python antigo, ou falta ffmpeg, ffprobe ou disco).
 
-## Como usar
+## Como usar com o Claude Code
 
 Abra o Claude Code na raiz deste repositório, coloque o vídeo bruto na pasta e
 peça "edit this into a reel". O skill `editor-reel`
@@ -40,6 +54,8 @@ ele está ausente, nunca sobre um arquivo existente (recusa sem `--force`).
 ## Estrutura
 
 ```
+Abrir Editor.command                  lançador de dois cliques (Mac); ver COMO-USAR.md
+app/                                  servidor local (server.py, jobs.py, projects.py) e página (web/)
 .claude/skills/editor-reel/SKILL.md   procedimento do skill
 brand/                                guia-visual.md e brand.json
 references/                           formatos-reel.md, legendas.md, graficos.md, revisao.md, capa.md

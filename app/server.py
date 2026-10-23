@@ -6,10 +6,15 @@ apenas de ``app/web``.
 """
 from __future__ import annotations
 
+import argparse
+import errno
 import hmac
+import http.client
 import json
 import os
 import re
+import secrets
+import signal
 import subprocess
 import sys
 import tempfile
@@ -42,6 +47,13 @@ MAX_DRENAR = 16 * 1024 * 1024  # corpo descartado antes de fechar em erro; maior
 RANGE_RE = re.compile(r"bytes=([0-9]{0,18})-([0-9]{0,18})", re.ASCII)
 DIGITOS_RE = re.compile(r"[0-9]+", re.ASCII)
 MAX_NOME = 200
+
+# encerramento por inatividade: sem batida da pagina por IDLE_SECONDS e sem tarefa
+# rodando, o servidor fecha; confere a cada CHECK_SECONDS
+IDLE_SECONDS = 120
+CHECK_SECONDS = 5
+APP_JSON = ".app.json"  # {"porta","token","pid"} da instancia no ar, em projects/
+PADRAO_RAIZ = REPO_ROOT / "projects"
 
 MIME = {
     ".mp4": "video/mp4", ".m4v": "video/x-m4v", ".mov": "video/quicktime",
@@ -98,6 +110,10 @@ class App:
         self.jobs = Jobs(self.root)  # orfaos 'rodando' viram erro
         self.brand_path = REPO_ROOT / "brand" / "brand.json"
         self.replace_lock = threading.Lock()  # troca do entrada.<ext> + limpeza
+        self.ultimo_sinal = time.monotonic()  # batida da pagina; antes da 1a conta a subida
+
+    def sinal(self) -> None:
+        self.ultimo_sinal = time.monotonic()
 
 
 def transcricao_falsa(server) -> bool:
@@ -332,6 +348,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ping":
             if not self._permitir("GET"):
                 return
+            return self.json_reply(200, {"ok": True})
+        if path == "/api/heartbeat":  # a pagina continua aberta (corpo ignorado)
+            if not self._permitir("POST"):
+                return
+            self._drenar()
+            self.app.sinal()
             return self.json_reply(200, {"ok": True})
         if self.server.test_mode and path == "/api/_boom":
             raise RuntimeError("falha forçada para teste")
@@ -789,19 +811,247 @@ class Handler(BaseHTTPRequestHandler):
 class _Servidor(ThreadingHTTPServer):
     def server_close(self):
         try:
-            self.app.jobs.shutdown()  # nao deixa ffmpeg/render orfaos
+            app = getattr(self, "app", None)  # bind falhou: TCPServer fecha antes do app
+            if app is not None:
+                app.jobs.shutdown()  # nao deixa ffmpeg/render orfaos
         finally:
             super().server_close()
 
 
+def _env_float(nome: str):
+    try:
+        v = float(os.environ[nome])
+    except (KeyError, ValueError):
+        return None
+    return v if v > 0 else None
+
+
 def make_server(root: Path, token: str, host: str = "127.0.0.1", port: int = 0,
-                max_upload: int = 4 * 1024 ** 3, test_mode: bool = False
+                max_upload: int = 4 * 1024 ** 3, test_mode: bool = False,
+                idle_seconds: float | None = None, check_seconds: float | None = None
                 ) -> ThreadingHTTPServer:
     """Cria o servidor. Somente loopback e suportado (127.0.0.1/localhost);
-    a checagem de Host/Origin assume isso e nao deve ser usado em 0.0.0.0."""
+    a checagem de Host/Origin assume isso e nao deve ser usado em 0.0.0.0.
+
+    ``idle_seconds``/``check_seconds`` valem para o vigia de inatividade (so ligado
+    por ``main``/``iniciar_vigia``); sem eles, ``REEL_APP_IDLE_SECONDS`` e
+    ``REEL_APP_CHECK_SECONDS`` so contam em ``test_mode``; senao, as constantes."""
     server = _Servidor((host, port), Handler)
     server.daemon_threads = True
     server.app = App(root, token)
     server.max_upload = max_upload
     server.test_mode = test_mode
+    env_idle = _env_float("REEL_APP_IDLE_SECONDS") if test_mode else None
+    env_check = _env_float("REEL_APP_CHECK_SECONDS") if test_mode else None
+    server.idle_seconds = idle_seconds or env_idle or IDLE_SECONDS
+    server.check_seconds = check_seconds or env_check or CHECK_SECONDS
     return server
+
+
+# ------------------------------------------------------------------ lancador
+def iniciar_vigia(server, encerrar, parar: threading.Event) -> threading.Thread:
+    """Thread que chama ``encerrar()`` (uma vez) quando a pagina para de bater ha
+    ``server.idle_seconds`` E nenhuma tarefa esta rodando. ``parar`` desliga o vigia."""
+    def vigiar():
+        while not parar.wait(server.check_seconds):
+            parado = time.monotonic() - server.app.ultimo_sinal
+            if parado >= server.idle_seconds and not server.app.jobs.algum_rodando():
+                encerrar()
+                return
+    t = threading.Thread(target=vigiar, name="vigia-inatividade", daemon=True)
+    t.start()
+    return t
+
+
+def comandos_navegador(url: str, plataforma: str | None = None) -> list[list[str]]:
+    """argv (sem shell), em ordem de preferencia, para abrir ``url``: no Mac, o
+    Google Chrome; sem ele, o navegador padrao. No Linux, ``xdg-open``."""
+    plataforma = sys.platform if plataforma is None else plataforma
+    if plataforma == "darwin":
+        return [["open", "-a", "Google Chrome", url], ["open", url]]
+    return [["xdg-open", url]]
+
+
+def abrir_navegador(url: str, plataforma: str | None = None, run=subprocess.run) -> bool:
+    """Tenta cada comando de ``comandos_navegador``; True no primeiro que der certo."""
+    for argv in comandos_navegador(url, plataforma):
+        try:
+            r = run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=20, close_fds=True)
+        except subprocess.TimeoutExpired:
+            return True  # o comando ficou esperando o navegador: ele abriu
+        except OSError:
+            continue
+        if r.returncode == 0:
+            return True
+    return False
+
+
+def _ler_app_json(raiz: Path):
+    """{"porta","token","pid"} validado, ou None (ausente, corrompido, campos errados)."""
+    try:
+        caminho = Path(raiz) / APP_JSON
+        if caminho.is_symlink() or caminho.stat().st_size > 4096:
+            return None
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(dados, dict):
+        return None
+    porta, token, pid = dados.get("porta"), dados.get("token"), dados.get("pid")
+    if not (type(porta) is int and 0 < porta < 65536 and type(pid) is int and pid > 0
+            and isinstance(token, str) and 0 < len(token) <= 200):
+        return None
+    return {"porta": porta, "token": token, "pid": pid}
+
+
+def _pid_vivo(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except (OSError, OverflowError):
+        return False
+    return True
+
+
+def _ping(porta: int, token: str, timeout: float = 2.0) -> bool:
+    """O editor desta chave responde nesta porta (outro servico ou outra chave: nao)."""
+    conn = http.client.HTTPConnection("127.0.0.1", porta, timeout=timeout)
+    try:
+        conn.request("GET", "/api/ping", headers={"Host": f"127.0.0.1:{porta}", "X-Token": token})
+        r = conn.getresponse()
+        corpo = r.read(1024)
+        return r.status == 200 and json.loads(corpo.decode("utf-8")) == {"ok": True}
+    except (OSError, ValueError, http.client.HTTPException):
+        return False
+    finally:
+        conn.close()
+
+
+def instancia_ativa(raiz: Path):
+    """URL do editor que ja esta no ar para esta pasta de projetos, ou None."""
+    info = _ler_app_json(raiz)
+    if info is None or info["pid"] == os.getpid() or not _pid_vivo(info["pid"]):
+        return None
+    if not _ping(info["porta"], info["token"]):
+        return None
+    return _url(info["porta"], info["token"])
+
+
+def _url(porta: int, token: str) -> str:
+    return f"http://127.0.0.1:{porta}/?t={token}"
+
+
+def gravar_app_json(raiz: Path, porta: int, token: str, pid: int) -> None:
+    """Grava ``.app.json`` atomicamente e so legivel pelo usuario (0600): tem a chave."""
+    texto = json.dumps({"porta": porta, "token": token, "pid": pid})
+    with common.atomic_write(Path(raiz) / APP_JSON) as tmp:
+        os.chmod(tmp, 0o600)
+        tmp.write_text(texto, encoding="utf-8")
+
+
+def remover_app_json(raiz: Path, pid: int) -> None:
+    """Apaga ``.app.json`` so se ele for desta instancia (``pid``)."""
+    info = _ler_app_json(raiz)
+    if info is not None and info["pid"] == pid:
+        try:
+            (Path(raiz) / APP_JSON).unlink()
+        except OSError:
+            pass
+
+
+def _argumentos(argv):
+    p = argparse.ArgumentParser(
+        prog="app/server.py", description="Editor de Reels: abre a página do editor no navegador.")
+    p.add_argument("--porta", type=int, default=0,
+                   help="porta fixa (padrão: uma porta livre qualquer)")
+    p.add_argument("--sem-navegador", action="store_true",
+                   help="não abre o navegador; só mostra o endereço")
+    # internos (testes): pasta de projetos e tempos de inatividade
+    p.add_argument("--raiz", type=Path, default=PADRAO_RAIZ, help=argparse.SUPPRESS)
+    p.add_argument("--inatividade", type=float, default=None, help=argparse.SUPPRESS)
+    p.add_argument("--intervalo-checagem", type=float, default=None, help=argparse.SUPPRESS)
+    return p.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    args = _argumentos(argv)
+    raiz = Path(args.raiz)
+    try:
+        raiz.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        print(f"erro: não foi possível usar a pasta de projetos ({raiz.name}).", file=sys.stderr)
+        return 1
+
+    existente = instancia_ativa(raiz)
+    if existente:
+        print("O editor já estava aberto; abrindo a mesma página no navegador.", flush=True)
+        print(f"Endereço: {existente}", flush=True)
+        if not args.sem_navegador:
+            abrir_navegador(existente)
+        return 0
+
+    if not 0 <= args.porta < 65536:
+        print("erro: a porta precisa ser um número entre 1 e 65535.", file=sys.stderr)
+        return 1
+    token = secrets.token_urlsafe(32)
+    try:
+        srv = make_server(raiz, token, port=args.porta,
+                          idle_seconds=args.inatividade, check_seconds=args.intervalo_checagem)
+    except OSError as e:
+        if e.errno == errno.EADDRINUSE:
+            print(f"erro: a porta {args.porta} já está em uso por outro programa. "
+                  "Feche esse programa ou abra o editor sem escolher a porta.", file=sys.stderr)
+        else:
+            print("erro: não foi possível iniciar o editor neste computador.", file=sys.stderr)
+        return 1
+    pid = os.getpid()
+    porta = srv.server_address[1]
+    parado = threading.Event()
+
+    def encerrar(motivo: str | None = None):
+        if parado.is_set():
+            return
+        parado.set()
+        if motivo:
+            print(motivo, flush=True)
+        # shutdown() espera o serve_forever: nunca na thread dele (o sinal cai nela)
+        threading.Thread(target=srv.shutdown, name="encerrar", daemon=True).start()
+
+    try:
+        for nome in ("SIGTERM", "SIGINT", "SIGHUP"):
+            if hasattr(signal, nome):
+                signal.signal(getattr(signal, nome), lambda *_: encerrar())
+        gravar_app_json(raiz, porta, token, pid)
+        url = _url(porta, token)
+        print("Editor de Reels aberto.", flush=True)
+        print(f"Endereço: {url}", flush=True)
+        print("Se o navegador não abrir sozinho, copie o endereço acima e cole no Google Chrome.",
+              flush=True)
+        print("Para fechar o editor, feche esta janela.", flush=True)
+        if not args.sem_navegador:
+            threading.Thread(target=abrir_navegador, args=(url,), name="navegador",
+                             daemon=True).start()
+        minutos = max(1, round(srv.idle_seconds / 60))
+        iniciar_vigia(srv, lambda: encerrar(
+            f"O editor fechou sozinho: a página ficou fechada por {minutos} "
+            f"minuto{'s' if minutos > 1 else ''}. Para usar de novo, dê dois cliques em "
+            "Abrir Editor."), parado)
+        srv.serve_forever(poll_interval=0.2)
+    except OSError:
+        print("erro: não foi possível iniciar o editor neste computador.", file=sys.stderr)
+        return 1
+    finally:
+        parado.set()
+        try:
+            srv.server_close()  # mata as tarefas em andamento (Jobs.shutdown)
+        finally:
+            remover_app_json(raiz, pid)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

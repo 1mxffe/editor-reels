@@ -234,6 +234,11 @@ class Jobs:
         with self._lock:
             return self._ativo_unlocked(slug)
 
+    def algum_rodando(self) -> bool:
+        """Ha alguma tarefa rodando em qualquer projeto (o servidor nao fecha sozinho)."""
+        with self._lock:
+            return any(j["estado"] == "rodando" for j in self._jobs.values())
+
     def get(self, job_id: str) -> dict:
         if not isinstance(job_id, str) or not ID_RE.fullmatch(job_id):
             raise KeyError(job_id)
