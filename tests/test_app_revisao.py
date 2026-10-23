@@ -110,7 +110,9 @@ def test_put_idempotent_twice_same_decisions(srv, slug):
     {"notes": [{"t": 1, "text": "a\u001bb"}]},
     {"caption_edits": {"0": "a\u0007b"}},
     {"graphics": {"x" * 65: "keep"}},
-    {"graphics": {"a b/c": "keep"}},
+    {"graphics": {"   ": "keep"}},
+    {"graphics": {"": "keep"}},
+    {"graphics": {"a\u0001b": "keep"}},
     {"graphics": {f"g{i}": "keep" for i in range(501)}},
     {"caption_edits": {"0": "a" * 501}},
     {"caption_edits": {"0": {"text": "a", "base_text": "b" * 2001}}},
@@ -348,3 +350,66 @@ def test_real_flow_with_ffmpeg(srv, make_sample):
         cid = antes["cuts"][0]["id"]
         depois = _put(c, p["slug"], {"cuts_removed": [cid]}).json()
         assert not [x for x in depois["cuts"] if x["id"] == cid and x["active"]]
+
+
+def test_graphics_ids_like_the_engine(srv, slug):
+    with client(srv) as c:
+        r = _put(c, slug, {"graphics": {"card 1": "keep", "gráfico-1": "drop", "k.1": "keep",
+                                         "a/b": "keep"}})
+        assert r.status == 200 and r.json()["graphics"]["card 1"] == "keep"
+
+
+def test_notes_newline_tab_and_crlf_normalized(srv, slug):
+    with client(srv) as c:
+        r = _put(c, slug, {"notes": [{"t": 1, "text": "linha1\r\nlinha2\rlinha3\tfim"}]})
+        assert r.status == 200
+        assert r.json()["notes"][0]["text"] == "linha1\nlinha2\nlinha3\tfim"
+        fr = r.json()["phrases"][0]
+        r = _put(c, slug, {"caption_edits": {"0": {"text": "um\r\ndois",
+                                                   "base_text": fr["base_text"]}}})
+        assert r.status == 200 and r.json()["phrases"][0]["text"] == "um\ndois"
+        assert _put(c, slug, {"notes": [{"t": 1, "text": "a\u000bb"}]}).status == 400
+        assert _put(c, slug, {"caption_edits": {"0": "a\tb"}}).status == 400
+
+
+def test_sanitizar_only_real_paths(tmp_path):
+    import revisao_api
+    d = tmp_path / "p"
+    d.mkdir()
+    assert revisao_api.sanitizar(f"arquivo ilegivel ({d}/cortes.json): x", d) == \
+        "arquivo ilegivel (<projeto>/cortes.json): x"
+    assert revisao_api.sanitizar("de início / fim e 1/2", d) == "de início / fim e 1/2"
+    assert revisao_api.sanitizar("falha em /etc/passwd agora", d) == "falha em passwd agora"
+    assert revisao_api.sanitizar("ver /opt/x/y.json", d) == "ver y.json"
+
+
+def test_drain_has_total_deadline(srv, slug, monkeypatch):
+    import server
+    import socket
+    monkeypatch.setattr(server, "DEADLINE_DRENAR", 0.5)
+    c0 = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        s = socket.create_connection(("127.0.0.1", c0), timeout=10)
+        s.sendall((f"PUT /api/projects/{slug}/revisao HTTP/1.1\r\nHost: 127.0.0.1:{c0}\r\n"
+                   f"X-Token: {TOKEN}\r\nContent-Length: {2*1024*1024}\r\n\r\n").encode())
+        t0 = time.time()
+        buf = b""
+        # envia gotejando: o servidor deve desistir de drenar e fechar apos ~0.5 s
+        try:
+            for _ in range(40):
+                s.sendall(b"x" * 10)
+                time.sleep(0.1)
+        except OSError:
+            pass
+        assert time.time() - t0 < 6
+        s.settimeout(3)
+        try:
+            buf = s.recv(4096)
+        except OSError:
+            pass
+        assert b"413" in buf.split(b"\r\n")[0] if buf else True
+    finally:
+        srv.shutdown()
+        srv.server_close()

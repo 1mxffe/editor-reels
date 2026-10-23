@@ -25,13 +25,15 @@ MAX_DECISOES = 1024 * 1024
 CHAVES = {"cuts_removed", "cuts_added", "caption_edits", "graphics", "notes"}
 TIPOS = {"cuts_removed": list, "cuts_added": list, "caption_edits": dict,
          "graphics": dict, "notes": list}
-ID_GRAFICO_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
 MAX_ENTRADAS = 500      # por mapa/lista, na requisicao e no estado gravado
 MAX_LEGENDA = 500
 MAX_BASE = 2000
 MAX_NOTA = 2000
 MAX_TEXTO = 2000        # qualquer outra string
-_ABS_RE = re.compile(r"(?<![\w<])/(?:[^\s/()'\":,;]+/)*([^\s/()'\":,;]*)")
+_SEG = r"[^\s/()'\":,;<>]"
+# caminho absoluto de verdade: comeca no inicio da palavra e tem 2+ segmentos
+# (/a/b) ou um segmento com extensao (/x.json); "inicio / fim" e "1/2" ficam
+_ABS_RE = re.compile(rf"(?<![^\s(\"'=,\[])/(?:(?:{_SEG}+/)+{_SEG}*|{_SEG}+\.[A-Za-z0-9]+)")
 
 _travas: dict[str, threading.Lock] = {}
 _travas_mu = threading.Lock()
@@ -50,7 +52,7 @@ def trava(slug: str) -> threading.Lock:
         return _travas.setdefault(slug, threading.Lock())
 
 
-def _checar_texto(s: str, onde: str, limite: int, quebra: bool = False) -> None:
+def _checar_texto(s: str, onde: str, limite: int, permitidos: str = "") -> None:
     try:
         s.encode("utf-8")
     except UnicodeEncodeError:
@@ -58,21 +60,32 @@ def _checar_texto(s: str, onde: str, limite: int, quebra: bool = False) -> None:
     if len(s) > limite:
         raise RevisaoErro(400, f"{onde}: texto longo demais (máximo {limite} caracteres)")
     for ch in s:
-        if unicodedata.category(ch) == "Cc" and not (quebra and ch == "\n"):
+        if unicodedata.category(ch) == "Cc" and ch not in permitidos:
             raise RevisaoErro(400, f"{onde}: caracteres de controle não são permitidos")
 
 
-def _varrer(obj, onde: str, quebra: bool = False) -> None:
-    """Toda string (inclusive chaves) sem surrogate nem controles."""
+def _norm(obj):
+    """\\r\\n e \\r viram \\n nos valores."""
     if isinstance(obj, str):
-        _checar_texto(obj, onde, MAX_TEXTO, quebra)
+        return obj.replace("\r\n", "\n").replace("\r", "\n")
+    if isinstance(obj, dict):
+        return {k: _norm(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_norm(v) for v in obj]
+    return obj
+
+
+def _varrer(obj, onde: str, permitidos: str = "") -> None:
+    """Toda string (inclusive chaves) sem surrogate nem controles (exceto `permitidos`)."""
+    if isinstance(obj, str):
+        _checar_texto(obj, onde, MAX_TEXTO, permitidos)
     elif isinstance(obj, dict):
         for k, v in obj.items():
-            _varrer(k, onde, quebra)
-            _varrer(v, onde, quebra)
+            _varrer(k, onde, permitidos)
+            _varrer(v, onde, permitidos)
     elif isinstance(obj, list):
         for v in obj:
-            _varrer(v, onde, quebra)
+            _varrer(v, onde, permitidos)
 
 
 def validar(decisoes) -> dict:
@@ -94,10 +107,12 @@ def _validar(decisoes) -> dict:
             raise RevisaoErro(400, f"'{k}' deve ser {'uma lista' if TIPOS[k] is list else 'um objeto'}")
         if len(v) > MAX_ENTRADAS:
             raise RevisaoErro(400, f"'{k}': máximo de {MAX_ENTRADAS} itens")
-        _varrer(v, k, quebra=(k == "caption_edits"))
+        if k in ("caption_edits", "notes"):
+            decisoes[k] = v = _norm(v)
+        _varrer(v, k, {"caption_edits": "\n", "notes": "\n\t"}.get(k, ""))
     for gid in decisoes.get("graphics", {}):
-        if not ID_GRAFICO_RE.fullmatch(gid):
-            raise RevisaoErro(400, "id de gráfico inválido (use letras, números, - e _; até 64)")
+        if not (gid.strip() and len(gid) <= 64):  # mesma regra de scripts/graphics.py
+            raise RevisaoErro(400, "id de gráfico inválido (texto de 1 a 64 caracteres)")
     for idx, v in decisoes.get("caption_edits", {}).items():
         texto, base = (v["text"], v.get("base_text")) if isinstance(v, dict) and "text" in v else (v, None)
         if isinstance(texto, str) and len(texto) > MAX_LEGENDA:
@@ -126,7 +141,8 @@ def _limitar_estado(d: Path, decisoes: dict) -> None:
 def sanitizar(msg: str, d: Path) -> str:
     for caminho in {str(d), str(d.resolve())}:
         msg = msg.replace(caminho, "<projeto>")
-    return _ABS_RE.sub(lambda m: m.group(1) or "<caminho>", msg)
+    msg = re.sub(r"<projeto>(?=[^\s/<>)\]'\":,;.])", "<projeto>/", msg)
+    return _ABS_RE.sub(lambda m: m.group(0).rsplit("/", 1)[-1] or "<caminho>", msg)
 
 
 def _erro_do_script(stderr: str, d: Path) -> str | None:

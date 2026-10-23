@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -36,6 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MAX_JSON = 64 * 1024
 MAX_JSON_REVISAO = 1024 * 1024  # edicao de legendas
 BLOCO = 1024 * 1024
+DEADLINE_DRENAR = 30  # segundos no total; excedeu, so fecha
 MAX_DRENAR = 16 * 1024 * 1024  # corpo descartado antes de fechar em erro; maior que isso so fecha
 RANGE_RE = re.compile(r"bytes=([0-9]{0,18})-([0-9]{0,18})", re.ASCII)
 DIGITOS_RE = re.compile(r"[0-9]+", re.ASCII)
@@ -152,13 +154,18 @@ class Handler(BaseHTTPRequestHandler):
         # descarta ate MAX_DRENAR em blocos (o timeout do socket limita clientes lentos);
         # acima disso a conexao e fechada com o corpo pendente (o cliente pode ver RST)
         if 0 < n <= MAX_DRENAR:
+            fim = time.monotonic() + DEADLINE_DRENAR
             try:
                 while n > 0:
-                    lido = self.rfile.read(min(BLOCO, n))
+                    resta = fim - time.monotonic()
+                    if resta <= 0:
+                        break
+                    self.connection.settimeout(min(resta, self.timeout))
+                    lido = self.rfile.read1(min(BLOCO, n))
                     if not lido:
                         break
                     n -= len(lido)
-            except OSError:
+            except (OSError, ValueError):
                 pass
 
     def handle_expect_100(self):
