@@ -98,6 +98,8 @@ const ICONES = {
   pasta: ['M3.5 6.5h6l2 2h9v10h-17z'],
   baixar: ['M12 4v11', 'M7 10.5l5 5 5-5', 'M4.5 19.5h15'],
   lixo: ['M4.5 7h15', 'M9.5 7V4.5h5V7', 'M6.5 7l1 13h9l1-13'],
+  lapis: ['M4.5 19.5l1-4.5L15.5 5l3.5 3.5-10 10z', 'M13 7.5l3.5 3.5'],
+  imagem: ['M4 5h16v14H4z', 'M4 16l5-5 4 4 2.5-2.5L20 16', 'M15.5 7.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z'],
   mais: ['M12 5v14', 'M5 12h14'],
   nota: ['M5.5 4.5h13v15h-13z', 'M9 9h6', 'M9 12.5h6', 'M9 16h3.5'],
 };
@@ -149,7 +151,7 @@ export const ORDEM = [
   { id: 'estilo', titulo: 'Estilo', resumo: 'Cores, letras e efeitos' },
   { id: 'preview', titulo: 'Preview', resumo: 'Assista a uma prévia' },
   { id: 'graficos', titulo: 'Gráficos', resumo: 'Cards de destaque (opcional)', opcional: true },
-  { id: 'capa', titulo: 'Capa', resumo: 'Quadro e texto da capa' },
+  { id: 'capa', titulo: 'Capa', resumo: 'Quadro e texto da capa (opcional)', opcional: true },
   { id: 'final', titulo: 'Final', resumo: 'Gere o Reel pronto' },
 ];
 

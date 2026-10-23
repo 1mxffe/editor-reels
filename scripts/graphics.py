@@ -19,6 +19,8 @@ arquivo) -> navegador -> ffmpeg -> temporario unico renomeado.
 
 Uso: python3 -I scripts/graphics.py <spec.json> <brand.json> <saida.webm>
          [--project <pasta>] [--size preview|final]
+     python3 -I scripts/graphics.py validar <graficos.json> <projeto>
+         (so valida: imprime ``ok`` ou ``erro: ...``)
 Saida: 0 ok; 1 erro (mensagem ``erro: ...``).
 """
 from __future__ import annotations
@@ -154,6 +156,13 @@ def load_cards(project: Path) -> list[dict]:
     path = project / "graficos.json"
     if not path.exists():
         return []
+    return load_cards_from(path, project)
+
+
+def load_cards_from(path: Path, project: Path) -> list[dict]:
+    """Cards validados de um documento ``{"cards": [...]}`` em ``path`` (materiais
+    relativos a ``project``); usado por ``load_cards`` e pelo subcomando ``validar``."""
+    path, project = Path(path), Path(project)
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -379,7 +388,25 @@ def inspect_card(spec: dict, brand: dict, *, project: Path | None = None,
 
 # ---------------------------------------------------------------- CLI
 
+def validar_main(argv: list[str]) -> None:
+    """``graphics.py validar <graficos.json> <projeto>``: imprime ``ok`` (saida 0) ou
+    ``erro: ...`` (saida 1). So valida; nao abre navegador nem ffmpeg."""
+    parser = common.UsageParser(prog="graphics.py validar",
+                                description="Valida um graficos.json sem desenhar nada.")
+    parser.add_argument("graficos", type=Path)
+    parser.add_argument("projeto", type=Path)
+    args = parser.parse_args(argv)
+    try:
+        load_cards_from(args.graficos, args.projeto)
+    except (GraphicsError, OSError, ValueError) as e:
+        common.fail(str(e))
+    print("ok")
+
+
 def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv[:1] == ["validar"]:
+        return validar_main(argv[1:])
     parser = common.UsageParser(prog="graphics.py", description="Desenha um card de gráfico.")
     parser.add_argument("spec", type=Path)
     parser.add_argument("brand", type=Path)

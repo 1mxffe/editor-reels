@@ -10,12 +10,16 @@ export const ROTULOS = {
   cortes: 'Procurando pausas e repetições',
   preview: 'Montando o preview',
   final: 'Montando a versão final',
+  'capa-candidatos': 'Procurando quadros no vídeo',
+  capa: 'Desenhando a capa',
 };
 const FALHAS = {
   transcrever: 'Não deu para reconhecer a fala.',
   cortes: 'Não deu para procurar os cortes.',
   preview: 'Não deu para montar o preview.',
   final: 'Não deu para montar a versão final.',
+  'capa-candidatos': 'Não deu para preparar os quadros.',
+  capa: 'Não deu para gerar a capa.',
 };
 // o que comeca sozinho quando o anterior termina bem
 const SEGUINTE = { transcrever: 'cortes' };

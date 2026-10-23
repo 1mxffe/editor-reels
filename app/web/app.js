@@ -11,6 +11,8 @@ import './passos/video.js';
 import './passos/cortes.js';
 import './passos/legendas.js';
 import './passos/preview.js';
+import './passos/graficos.js';
+import './passos/capa.js';
 import './passos/final.js';
 
 export { api, el, toast, registrarPasso, urlArquivo, Erro };

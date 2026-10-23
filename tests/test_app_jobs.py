@@ -241,7 +241,7 @@ def test_option_validation_rejects_unknown_keys(tmp_path):
     with pytest.raises(ValueError):
         tarefas.argv("capa", p, gancho="a\x00b")
     with pytest.raises(ValueError):
-        tarefas.argv("capa", p, candidato=True, gancho="ok")
+        tarefas.argv("capa", p, quadro=True, gancho="ok")
     with pytest.raises(ValueError):
         tarefas.argv("desconhecido", p)
 
@@ -258,8 +258,13 @@ def test_argv_real_shapes(tmp_path):
     assert tarefas.argv("cortes", p)[3:] == ["detect", str(p / "transcricao.json"), str(p / "cortes.json")]
     assert tarefas.argv("final", p)[3:] == [str(p), "final"]
     assert tarefas.argv("capa-candidatos", p, n=4)[3:] == ["video", "--n=4", str(p / "entrada.mp4"), str(p / "capa")]
-    assert tarefas.argv("capa-candidatos", p, modo="photo")[3:] == ["photo", str(p / "capa" / "foto.png"), str(p / "capa")]
-    c = tarefas.argv("capa", p, candidato=2, gancho="-3 MITOS", area="IR", subtitulo="a\nb")
+    (p / "materiais").mkdir()
+    (p / "materiais" / "eu.png").write_bytes(b"x")
+    assert tarefas.argv("capa-candidatos", p, modo="foto", foto="materiais/eu.png")[3:] == [
+        "photo", str(p / "materiais" / "eu.png"), str(p / "capa")]
+    (p / "capa").mkdir()
+    (p / "capa" / "candidato-2.png").write_bytes(b"x")
+    c = tarefas.argv("capa", p, quadro="capa/candidato-2.png", gancho="-3 MITOS", area="IR", subtitulo="a\nb")
     assert "--hook=-3 MITOS" in c and "--subtitle=a\nb" in c
     assert c[-3:] == [str(p / "capa" / "candidato-2.png"), str(tarefas.BRAND), str(p / "capa" / "capa.png")]
     with pytest.raises(ValueError):
@@ -464,6 +469,8 @@ def test_cancel_after_process_exit_returns_false_and_keeps_real_code(root):
 def test_argv_every_type_through_mocked_popen(root, monkeypatch):
     p = root / "a"
     (p / "entrada.mp4").write_bytes(b"x")
+    (p / "capa").mkdir(exist_ok=True)
+    (p / "capa" / "candidato-1.png").write_bytes(b"x")
     chamadas = []
 
     class FakeProc:
@@ -485,7 +492,8 @@ def test_argv_every_type_through_mocked_popen(root, monkeypatch):
     j = Jobs(root)
     usuario = {"transcrever": {"lang": "pt", "model": "small"},
                "capa-candidatos": {"n": 3},
-               "capa": {"gancho": "ECHO; rm -rf /", "area": "$(x)", "subtitulo": "`y`"}}
+               "capa": {"quadro": "capa/candidato-1.png", "gancho": "ECHO; rm -rf /", "area": "$(x)",
+                        "subtitulo": "`y`"}}
     for tipo in tarefas.TIPOS:
         monkeypatch.setattr(FakeProc, "stdout", io.BytesIO(b""))
         a = tarefas.argv(tipo, p, **usuario.get(tipo, {}))

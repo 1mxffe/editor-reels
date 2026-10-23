@@ -26,6 +26,7 @@ ETAPAS = ("video", "transcricao", "cortes", "legendas", "estilo",
 PASTAS_PUBLICAS = ("saida", "capa", "materiais", "quadros")
 MAX_COMPONENTES = 4
 EXT_VIDEO = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
+CANDIDATO_RE = re.compile(r"candidato-([1-9])\.png")
 
 
 def _eh_entrada(nome: str) -> bool:
@@ -222,6 +223,16 @@ class Projects:
             "final": "saida/final.mp4" if feito["final"] else None,
         }
         meta = self._meta(d)
+        candidatos = []
+        capa_dir = d / "capa"
+        if capa_dir.is_dir() and not capa_dir.is_symlink():
+            nums = sorted(int(m.group(1)) for p in capa_dir.glob("candidato-*.png")
+                          if (m := CANDIDATO_RE.fullmatch(p.name)) and p.is_file()
+                          and not p.is_symlink())
+            candidatos = [f"capa/candidato-{n}.png" for n in nums]
+            foto = capa_dir / "foto.png"
+            if foto.is_file() and not foto.is_symlink():
+                candidatos.append("capa/foto.png")
         return {"slug": slug, "nome": meta["nome"], "duracao": duracao,
                 "etapas": {k: ("pronto" if feito[k] else "pendente") for k in ETAPAS},
                 # so o "Confirmar legendas" (etapas.json); legendas.json sozinho nao conta
@@ -230,4 +241,6 @@ class Projects:
                 "legendas_desatualizado": legendas_velhas,
                 "preview_desatualizado": _desatualizado(d, "preview", "saida/preview.mp4", atual),
                 "final_desatualizado": _desatualizado(d, "final", "saida/final.mp4", atual),
+                # quadros para a capa (capa-candidatos), na ordem do video, e a foto enviada
+                "capa_candidatos": candidatos,
                 "arquivos": arquivos}

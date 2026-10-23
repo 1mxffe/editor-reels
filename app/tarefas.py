@@ -75,10 +75,25 @@ def _lang(nome, valor):
     return valor
 
 
-def _candidato(nome, valor):
-    if valor == "foto":
-        return "foto"
-    return _inteiro(nome, valor, 1, 8)
+# nome de arquivo simples (sem pasta, sem comecar por '.' ou '-')
+NOME_ARQ = r"[A-Za-z0-9\u00C0-\u024F][A-Za-z0-9\u00C0-\u024F()._-]{0,199}"
+FOTO_RE = re.compile(r"materiais/(" + NOME_ARQ + r")\.(png|jpe?g|webp)", re.IGNORECASE)
+QUADRO_RE = re.compile(r"(capa|quadros)/(" + NOME_ARQ + r")\.(png|jpe?g|webp)", re.IGNORECASE)
+
+
+def _foto(nome, valor):
+    """Foto da capa: so uma imagem direto em materiais/ (png, jpg ou webp)."""
+    if not isinstance(valor, str) or not FOTO_RE.fullmatch(valor) or ".." in valor:
+        raise ValueError("'foto' deve ser uma imagem dos materiais (png, jpg ou webp)")
+    return valor
+
+
+def _quadro(nome, valor):
+    """Quadro escolhido para a capa: imagem em capa/ (menos a propria capa) ou quadros/."""
+    if (not isinstance(valor, str) or not QUADRO_RE.fullmatch(valor) or ".." in valor
+            or valor.lower().startswith("capa/capa.")):
+        raise ValueError("'quadro' deve ser um dos quadros da capa (capa/... ou quadros/...)")
+    return valor
 
 
 # tipo -> {chave: validador(nome, valor)}
@@ -87,9 +102,10 @@ OPCOES = {
     "cortes": {},
     "preview": {},
     "final": {},
-    "capa-candidatos": {"modo": lambda n, v: _enum(n, v, ("video", "photo")),
+    "capa-candidatos": {"modo": lambda n, v: _enum(n, v, ("video", "foto")),
+                        "foto": _foto,
                         "n": lambda n, v: _inteiro(n, v, 1, 8)},
-    "capa": {"candidato": _candidato,
+    "capa": {"quadro": _quadro,
              "gancho": _texto,
              "area": _texto,
              "subtitulo": lambda n, v: _texto(n, v, permitir_quebra=True)},
@@ -122,9 +138,25 @@ def _entrada(project: Path) -> Path:
     raise ValueError("envie o vídeo antes de continuar")
 
 
-def argv(tipo: str, project: Path, *, falso: bool = False, **opcoes) -> list[str]:
+def _arquivo_do_projeto(project: Path, rel: str, onde: str) -> Path:
+    """Caminho de ``rel`` (ja validado) se for arquivo de verdade dentro do projeto."""
+    alvo = project / rel
+    try:
+        ok = (alvo.is_file() and not alvo.is_symlink()
+              and alvo.resolve().parent == (project / rel.split("/")[0]).resolve()
+              and (project / rel.split("/")[0]).resolve().parent == project.resolve())
+    except (OSError, RuntimeError):
+        ok = False
+    if not ok:
+        raise ValueError(onde)
+    return alvo
+
+
+def argv(tipo: str, project: Path, *, falso: bool = False, marca: Path | None = None,
+         **opcoes) -> list[str]:
     """argv da tarefa. ``falso=True`` (so o servidor em modo de teste decide isso, ver
-    ``server.transcricao_falsa``) troca o Whisper pela transcricao fixa dos testes."""
+    ``server.transcricao_falsa``) troca o Whisper pela transcricao fixa dos testes.
+    ``marca``: brand.json usado pela capa (padrao: brand/brand.json do repositorio)."""
     opts = validar(tipo, opcoes)
     project = Path(project)
     if tipo == "transcrever" and falso:
@@ -145,23 +177,28 @@ def argv(tipo: str, project: Path, *, falso: bool = False, **opcoes) -> list[str
     if tipo == "capa-candidatos":
         modo = opts.get("modo", "video")
         saida = str(project / "capa")
-        if modo == "photo":
-            return _py("cover_frames.py") + ["photo", str(project / "capa" / "foto.png"), saida]
+        if modo == "foto":
+            if "foto" not in opts:
+                raise ValueError("escolha a foto dos materiais")
+            foto = _arquivo_do_projeto(project, opts["foto"], "a foto escolhida não está nos materiais")
+            return _py("cover_frames.py") + ["photo", str(foto), saida]
+        if "foto" in opts:
+            raise ValueError("'foto' só vale com o modo foto")
         cmd = _py("cover_frames.py") + ["video"]
         if "n" in opts:
             cmd.append(f"--n={opts['n']}")
         return cmd + [str(_entrada(project)), saida]
     if tipo == "capa":
+        if "quadro" not in opts:
+            raise ValueError("escolha o quadro da capa")
         if "gancho" not in opts:
             raise ValueError("informe o gancho da capa")
-        cand = opts.get("candidato", 1)
-        foto = ("foto.png" if cand == "foto" else f"candidato-{cand}.png")
+        quadro = _arquivo_do_projeto(project, opts["quadro"], "o quadro escolhido não existe mais; procure os quadros de novo")
         cmd = _py("cover_compose.py") + [f"--hook={opts['gancho']}"]
         if "area" in opts:
             cmd.append(f"--area={opts['area']}")
         if "subtitulo" in opts:
             cmd.append(f"--subtitle={opts['subtitulo']}")
-        return cmd + [str(project / "capa" / foto), str(BRAND),
-                      str(project / "capa" / "capa.png")]
+        return cmd + [str(quadro), str(marca or BRAND), str(project / "capa" / "capa.png")]
     # instalar-chromium: argv fixo, nenhuma entrada do usuario
     return ["sh", "-c", "npm i -g playwright && npx playwright install chromium"]

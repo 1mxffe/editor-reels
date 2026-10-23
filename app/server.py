@@ -72,6 +72,42 @@ MIME = {
 
 CSP = ("default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
        "connect-src 'self'; style-src 'self' 'unsafe-inline'")
+# SVG enviado pela pessoa (materiais/): aberto direto no navegador nada roda nem carrega
+CSP_SVG = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+# materiais: imagens e videos de apoio, um nome limpo por arquivo
+EXT_MATERIAIS = (".png", ".jpg", ".jpeg", ".webp", ".svg", ".mp4")
+MAX_MATERIAL = 200 * 1024 * 1024
+MAX_GRAFICOS = 256 * 1024
+NOME_EXT_RE = re.compile(r"^(.*?)(\.[A-Za-z0-9]{1,8})?$", re.DOTALL)
+MARCA_INCOMPLETA = ("salve o @ do escritório na Instalação antes de gerar a capa")
+
+
+def nome_material(bruto: str) -> str:
+    """Mesma limpeza de ``sanitizeName`` da review/review.html: so o ultimo pedaço do
+    caminho, sem controles nem <>:"|?*, espacos viram '-', sem '.'/'-' nas pontas,
+    radical com ate 80 caracteres; extensao em minusculas."""
+    base = re.split(r"[\\/]", str(bruto or ""))[-1]
+    base = re.sub(r"[\x00-\x1f\x7f]", "-", base)
+    base = re.sub(r'[<>:"|?*]', "-", base)
+    base = re.sub(r"\s+", "-", base)
+    m = NOME_EXT_RE.match(base)
+    stem = re.sub(r"-+", "-", m.group(1) or "")
+    stem = re.sub(r"^[.\-]+|[.\-]+$", "", stem)
+    ext = (m.group(2) or "").lower()
+    return (stem or "arquivo")[:80] + ext
+
+
+def _conteudo_confere(cabeca: bytes, ext: str) -> bool:
+    if ext == ".png":
+        return cabeca.startswith(b"\x89PNG\r\n\x1a\n")
+    if ext in (".jpg", ".jpeg"):
+        return cabeca.startswith(b"\xff\xd8\xff")
+    if ext == ".webp":
+        return cabeca[:4] == b"RIFF" and cabeca[8:12] == b"WEBP"
+    if ext == ".mp4":
+        return cabeca[4:8] == b"ftyp"
+    return b"<svg" in cabeca.lower()
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -114,6 +150,8 @@ class App:
         self.brand_path = REPO_ROOT / "brand" / "brand.json"
         self.replace_lock = threading.Lock()  # troca do entrada.<ext> + limpeza
         self.ultimo_sinal = time.monotonic()  # batida da pagina; antes da 1a conta a subida
+        self.max_material = MAX_MATERIAL
+        self.materiais_lock = threading.Lock()  # escolha do nome livre + link
 
     def sinal(self) -> None:
         self.ultimo_sinal = time.monotonic()
@@ -418,6 +456,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not self._permitir("PUT"):
                     return
                 return self.api_etapa_legendas(slug)
+            if resto[1] == "materiais" and len(resto) == 2:
+                if not self._permitir("GET", "PUT"):
+                    return
+                return self.api_materiais(slug)
+            if resto[1] == "materiais" and len(resto) == 3:
+                if not self._permitir("DELETE"):
+                    return
+                return self.api_material_apagar(slug, unquote(resto[2]))
+            if resto[1] == "graficos" and len(resto) == 2:
+                if not self._permitir("GET", "PUT"):
+                    return
+                return self.api_graficos(slug)
             if resto[1] == "arquivos" and len(resto) == 3:
                 if not self._permitir("GET"):
                     return
@@ -454,9 +504,11 @@ class Handler(BaseHTTPRequestHandler):
             corpo = {}
         try:
             argv = tarefas.argv(tipo, d, falso=transcricao_falsa(self.server),
-                                **tarefas.validar(tipo, corpo))
+                                marca=self.app.brand_path, **tarefas.validar(tipo, corpo))
         except ValueError as e:
             return self.error(400, str(e))
+        if tipo == "capa" and not self._brand_info()["completa"]:
+            return self.json_reply(409, {"erro": MARCA_INCOMPLETA, "codigo": "marca_incompleta"})
         trava = revisao_api.trava(slug)
         if not trava.acquire(blocking=False):
             return self.json_reply(409, {"erro": "a revisão deste projeto está em andamento",
@@ -724,6 +776,212 @@ class Handler(BaseHTTPRequestHandler):
         return (any(s.get("codec_type") == "video" for s in streams)
                 and duracao == duracao and 0 < duracao < float("inf"))
 
+    # -- materiais ---------------------------------------------------------------
+    def _pasta_materiais(self, d: Path, criar: bool = False):
+        pasta = d / "materiais"
+        if criar:
+            try:
+                pasta.mkdir(exist_ok=True)
+            except OSError:
+                return None
+        try:
+            if pasta.is_symlink() or not pasta.is_dir() or pasta.resolve().parent != d.resolve():
+                return None
+        except (OSError, RuntimeError):
+            return None
+        return pasta
+
+    def _lista_materiais(self, d: Path) -> list[dict]:
+        pasta = self._pasta_materiais(d)
+        itens = []
+        if pasta is None:
+            return itens
+        for p in pasta.iterdir():
+            ext = p.suffix.lower()
+            if (p.name.startswith(".") or ext not in EXT_MATERIAIS or p.is_symlink()
+                    or not p.is_file() or p.name != nome_material(p.name)):
+                continue
+            try:
+                tam = p.stat().st_size
+            except OSError:
+                continue
+            itens.append({"nome": p.name, "rel": f"materiais/{p.name}",
+                          "tipo": "video" if ext == ".mp4" else "imagem", "tamanho": tam})
+        itens.sort(key=lambda m: m["nome"])
+        return itens
+
+    def api_materiais(self, slug: str):
+        d = self._projeto(slug)
+        if d is None:
+            return
+        if self.command in ("GET", "HEAD"):
+            return self.json_reply(200, {"materiais": self._lista_materiais(d)})
+        nome = nome_material(unquote(self.headers.get("X-Filename") or ""))
+        ext = os.path.splitext(nome)[1]
+        if ext not in EXT_MATERIAIS:
+            return self.error(415, "tipo de arquivo não aceito; use png, jpg, webp, svg ou mp4")
+        n = self._content_length()
+        if n is None:
+            return
+        if n == 0:
+            return self.error(400, "arquivo vazio")
+        if n > self.app.max_material:
+            mb = self.app.max_material // (1024 * 1024)
+            return self.error(413, f"arquivo grande demais (máximo {mb} MB)" if mb
+                              else "arquivo grande demais")
+        pasta = self._pasta_materiais(d, criar=True)
+        if pasta is None:
+            return self.error(500, "não foi possível usar a pasta de materiais")
+        tmp = None
+        try:
+            fd, nome_tmp = tempfile.mkstemp(dir=d, prefix=".material-", suffix=".tmp")
+            tmp = Path(nome_tmp)
+            total, cabeca = 0, b""
+            with os.fdopen(fd, "wb") as f:
+                while total < n:
+                    bloco = self.rfile.read(min(BLOCO, n - total))
+                    if not bloco:
+                        break
+                    if len(cabeca) < 4096:
+                        cabeca += bloco[:4096 - len(cabeca)]
+                    total += len(bloco)
+                    f.write(bloco)
+                f.flush()
+                os.fsync(f.fileno())
+            self._corpo_lido = True
+            if total != n:
+                return self.error(400, "envio interrompido")
+            if not _conteudo_confere(cabeca, ext):
+                return self.error(415, f"o conteúdo não é um arquivo {ext[1:]} de verdade")
+            radical = nome[:-len(ext)]
+            with self.app.materiais_lock:
+                usados = {p.name.lower() for p in pasta.iterdir()}
+                final, i = nome, 1
+                while final.lower() in usados:
+                    i += 1
+                    final = f"{radical}-{i}{ext}"
+                os.link(tmp, pasta / final)  # nunca sobrescreve: falha se ja existir
+        except TimeoutError:
+            self.close_connection = True
+            return self.error(408, "tempo esgotado no envio")
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+            return self.error(400, "envio interrompido")
+        except OSError as e:
+            print(f"erro no envio de material: {e!r}", file=sys.stderr)
+            return self.error(500, "não foi possível gravar o arquivo")
+        finally:
+            if tmp is not None:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        item = next((m for m in self._lista_materiais(d) if m["nome"] == final),
+                    {"nome": final, "rel": f"materiais/{final}"})
+        self.json_reply(201, item)
+
+    def api_material_apagar(self, slug: str, nome: str):
+        d = self._projeto(slug)
+        if d is None:
+            return
+        self._drenar()
+        lista = self._lista_materiais(d)
+        if nome not in {m["nome"] for m in lista}:
+            return self.error(404, "esse material não existe")
+        try:
+            (d / "materiais" / nome).unlink()
+        except FileNotFoundError:
+            return self.error(404, "esse material não existe")
+        except OSError:
+            return self.error(500, "não foi possível apagar o material")
+        self.json_reply(200, {"materiais": self._lista_materiais(d)})
+
+    # -- graficos -----------------------------------------------------------------
+    def api_graficos(self, slug: str):
+        d = self._projeto(slug)
+        if d is None:
+            return
+        if self.command in ("GET", "HEAD"):
+            self._drenar()
+            return self.json_reply(200, self._graficos_atuais(d))
+        ok, corpo = self._read_json(MAX_GRAFICOS)
+        if not ok:
+            return
+        if not (isinstance(corpo, dict) and set(corpo) == {"cards"}
+                and isinstance(corpo["cards"], list)):
+            return self.error(400, 'envie {"cards": [...]}')
+        for i, card in enumerate(corpo["cards"]):
+            mat = card.get("material") if isinstance(card, dict) else None
+            if mat not in (None, "") and not (isinstance(mat, str) and mat.startswith("materiais/")
+                                              and ".." not in mat and "\\" not in mat):
+                return self.error(400, f"card {i}: a imagem precisa ser um dos materiais")
+        trava = revisao_api.trava(slug)
+        if not trava.acquire(timeout=revisao_api.ESPERA_TRAVA):
+            return self.error(409, "outra edição está em andamento neste projeto; tente de novo")
+        tmp = None
+        try:
+            fd, nome_tmp = tempfile.mkstemp(dir=d, prefix=".graficos-", suffix=".tmp")
+            tmp = Path(nome_tmp)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"cards": corpo["cards"]}, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            erro = self._validar_graficos(tmp, d)
+            if erro is not None:
+                return self.error(400, erro)
+            os.replace(tmp, d / "graficos.json")
+            tmp = None
+        except OSError as e:
+            print(f"erro ao gravar graficos: {e!r}", file=sys.stderr)
+            return self.error(500, "não foi possível gravar os gráficos")
+        finally:
+            trava.release()
+            if tmp is not None:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        self.json_reply(200, self._graficos_atuais(d))
+
+    @staticmethod
+    def _graficos_atuais(d: Path) -> dict:
+        cards, decisoes = [], {}
+        try:
+            doc = json.loads((d / "graficos.json").read_text(encoding="utf-8"))
+            if isinstance(doc, dict) and isinstance(doc.get("cards"), list):
+                cards = doc["cards"]
+        except (OSError, ValueError):
+            pass
+        try:
+            rev = json.loads((d / "revisao.json").read_text(encoding="utf-8"))
+            g = rev.get("graphics") if isinstance(rev, dict) else None
+            if isinstance(g, dict):
+                decisoes = {k: v for k, v in g.items() if v in ("keep", "drop")}
+        except (OSError, ValueError):
+            pass
+        return {"cards": cards, "decisoes": decisoes}
+
+    @staticmethod
+    def _validar_graficos(arquivo: Path, d: Path):
+        """None se ``scripts/graphics.py validar`` aceitar; senao a mensagem limpa."""
+        cmd = [sys.executable, "-I", str(REPO_ROOT / "scripts" / "graphics.py"), "validar",
+               str(arquivo), str(d)]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60,
+                                  cwd=REPO_ROOT, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            return "a conferência dos gráficos demorou demais"
+        except OSError:
+            return "não foi possível conferir os gráficos"
+        if proc.returncode == 0 and proc.stdout.strip() == "ok":
+            return None
+        for linha in (proc.stderr + "\n" + proc.stdout).splitlines():
+            if linha.startswith("erro:"):
+                msg = linha[len("erro:"):].strip().replace(str(arquivo), "graficos.json")
+                msg = msg.replace(arquivo.name, "graficos.json")
+                return revisao_api.sanitizar(msg, d)[:500] or "gráficos inválidos"
+        return "gráficos inválidos"
+
     # -- arquivos com Range -------------------------------------------------------
     def api_arquivo(self, slug: str, rel: str):
         try:
@@ -764,7 +1022,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             if status == 206:
                 self.send_header("Content-Range", f"bytes {inicio}-{fim}/{tam}")
-            self.send_header("Content-Security-Policy", CSP)
+            self.send_header("Content-Security-Policy", CSP_SVG if alvo.suffix.lower() == ".svg" else CSP)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Cache-Control", "no-store")

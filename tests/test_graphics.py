@@ -134,6 +134,36 @@ def test_cli_invalid_spec_exit_1(tmp_path):
     assert not out.exists()
 
 
+def test_graficos_validar_subcommand_exit_codes(tmp_path):
+    proj = tmp_path / "proj"
+    _png(proj / "materiais" / "foto.png")
+    doc = tmp_path / "outro-lugar" / "g.json"
+
+    def rodar(cards, raw=None):
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(raw if raw is not None else json.dumps({"cards": cards}), "utf-8")
+        return subprocess.run([sys.executable, "-I", str(SCRIPT), "validar", str(doc), str(proj)],
+                              capture_output=True, text=True)
+
+    r = rodar([_spec(), _spec(id="k2", material="materiais/foto.png")])
+    assert r.returncode == 0 and r.stdout.strip() == "ok" and r.stderr == ""
+    assert rodar([]).returncode == 0
+    for cards, trecho in (([_spec(), _spec(title="x" * 61, id="k2")], "card 1"),
+                          ([_spec(), _spec()], "repetido"),
+                          ([_spec(material="materiais/sumiu.png")], "material"),
+                          ([_spec(dur=0.2)], "dur")):
+        r = rodar(cards)
+        assert r.returncode == 1, cards
+        assert r.stderr.startswith("erro:") and trecho in r.stderr and "Traceback" not in r.stderr
+        assert r.stdout.strip() != "ok"
+    r = rodar(None, raw="{nao e json")
+    assert r.returncode == 1 and r.stderr.startswith("erro:")
+    r = rodar(None, raw='{"cartoes": []}')
+    assert r.returncode == 1 and "cards" in r.stderr
+    # usar o subcomando nao muda o uso antigo (spec brand saida)
+    assert not (proj / "graficos.json").exists()
+
+
 # ---------------------------------------------------------------- navegador real
 
 def test_card_uses_poppins(tmp_path):
