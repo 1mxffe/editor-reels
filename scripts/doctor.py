@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     status, items = check()
     if "--json" in argv:
         import json
-        print(json.dumps({"estado": status, "itens": items}, ensure_ascii=False))
+        print(json.dumps({"estado": status, "itens": items}))
         return 1 if status == "MISSING" else 0
     ok_mark, bad_mark = _marks()
     for i in items:

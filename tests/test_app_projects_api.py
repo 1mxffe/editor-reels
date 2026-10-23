@@ -107,19 +107,6 @@ def test_upload_over_limit_413_no_leftover(tmp_path):
         conn.close()
 
 
-def test_upload_over_limit_streaming_count(tmp_path):
-    """Content-Length mente (menor que o corpo real)? Nao e possivel com http.server:
-    o corpo lido e limitado ao Content-Length; basta garantir o 413 por cabecalho."""
-    root = tmp_path / "projects"
-    root.mkdir()
-    s = make_server(root, TOKEN, max_upload=10, test_mode=True)
-    with client(s) as c:
-        slug = _criar(c)
-        r = c.request("PUT", f"/api/projects/{slug}/video", body=b"x" * 11,
-                      headers={"X-Filename": "a.mp4"})
-        assert r.status == 413
-
-
 def test_upload_bad_extension(srv):
     with client(srv) as c:
         slug = _criar(c)
@@ -179,7 +166,7 @@ def test_file_allowlist_via_api(srv):
         assert c.request("POST", f"/api/projects/{slug}/arquivos/saida/preview.mp4").status == 405
 
 
-def test_doctor_translated_items(srv, monkeypatch):
+def test_doctor_translated_items(srv, monkeypatch):  # noqa: C901
     import doctor
     import server
     fake = ("READY WITH LIMITS", [
@@ -193,7 +180,7 @@ def test_doctor_translated_items(srv, monkeypatch):
         r = c.get("/api/doctor")
         assert r.status == 200
         d = r.json()
-        assert d["estado"] == "READY WITH LIMITS"
+        assert d["estado"] == "pronto com limites" and d["estado_codigo"] == "READY WITH LIMITS"
         itens = {i["id"]: i for i in d["itens"]}
         assert len(d["itens"]) == 3
         ff = itens["ffmpeg"]
@@ -229,3 +216,166 @@ def test_brand_handles_roundtrip_and_validation(srv):
         assert c.get("/api/brand").json()["handles"] == ["@novo", "@outro"]
         assert c.request("PUT", "/api/brand", body=b"x" * 70000).status == 413
         assert c.request("DELETE", "/api/brand").status == 405
+
+
+# ---- fix round 1 ----
+def _raw(c, metodo, caminho, cabecalhos, corpo=b""):
+    import socket
+    sk = socket.create_connection(("127.0.0.1", c.port), timeout=10)
+    h = {"Host": f"127.0.0.1:{c.port}", "X-Token": TOKEN, "Connection": "close"}
+    h.update(cabecalhos)
+    req = f"{metodo} {caminho} HTTP/1.1\r\n" + "".join(f"{k}: {v}\r\n" for k, v in h.items()) + "\r\n"
+    sk.sendall(req.encode("utf-8") + corpo)
+    dados = b""
+    while True:
+        try:
+            b = sk.recv(65536)
+        except OSError:
+            break
+        if not b:
+            break
+        dados += b
+    sk.close()
+    return int(dados.split(b" ", 2)[1]) if dados else 0
+
+
+def test_concurrent_uploads_one_coherent_state(srv, make_sample):
+    import threading
+    bom = make_sample.read_bytes()
+    with client(srv) as c:
+        slug = _criar(c)
+        res = []
+
+        def envia(corpo):
+            r = c.request("PUT", f"/api/projects/{slug}/video", body=corpo,
+                          headers={"X-Filename": "a.mp4"})
+            res.append((corpo is bom, r.status))
+        ts = [threading.Thread(target=envia, args=(x,)) for x in (bom, b"lixo" * 5000, bom)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        d = srv.app.projects.path(slug)
+        assert not list(d.glob("*.tmp")) and not list(d.glob(".*"))
+        lixo = [st for ehbom, st in res if not ehbom]
+        assert lixo == [400]
+        bons = [st for ehbom, st in res if ehbom]
+        assert all(st in (200, 409) for st in bons) and 200 in bons
+        assert (d / "entrada.mp4").read_bytes() == bom
+
+
+def test_server_imports_without_conftest():
+    import subprocess
+    import sys
+    code = ("import sys; sys.path.insert(0, %r); import server; print('ok')"
+            % str(repo_root / "app"))
+    r = subprocess.run([sys.executable, "-I", "-c", code], capture_output=True, text=True,
+                       cwd="/")
+    assert r.returncode == 0 and "ok" in r.stdout, r.stderr
+
+
+def test_upload_probe_timeout_cleans_tmp(srv, make_sample, monkeypatch):
+    import subprocess
+    import server
+
+    def boom(caminho):
+        raise subprocess.TimeoutExpired("ffprobe", 60)
+    monkeypatch.setattr(server.Handler, "_video_valido", staticmethod(boom))
+    with client(srv) as c:
+        slug = _criar(c)
+        r = c.request("PUT", f"/api/projects/{slug}/video", body=b"abc",
+                      headers={"X-Filename": "a.mp4"})
+        assert r.status == 504 and "demorou demais" in r.json()["erro"]
+        d = srv.app.projects.path(slug)
+        assert not list(d.glob("*.tmp")) and not list(d.glob(".*"))
+
+
+def test_unexpected_exception_cleans_tmp(srv, monkeypatch):
+    import server
+
+    def boom(caminho):
+        raise MemoryError()
+    monkeypatch.setattr(server.Handler, "_video_valido", staticmethod(boom))
+    with client(srv) as c:
+        slug = _criar(c)
+        r = c.request("PUT", f"/api/projects/{slug}/video", body=b"abc",
+                      headers={"X-Filename": "a.mp4"})
+        assert r.status == 500
+        d = srv.app.projects.path(slug)
+        assert not list(d.glob("*.tmp")) and not list(d.glob(".*"))
+
+
+def test_tmp_files_not_state_nor_served(srv):
+    with client(srv) as c:
+        slug = _criar(c)
+        d = srv.app.projects.path(slug)
+        (d / "entrada.mov.tmp").write_bytes(b"parcial")
+        (d / "entrada.mp4.abc.tmp").write_bytes(b"parcial")
+        st = c.get(f"/api/projects/{slug}").json()
+        assert st["etapas"]["video"] == "pendente" and st["arquivos"]["entrada"] is None
+        assert c.get(f"/api/projects/{slug}/arquivos/entrada.mov.tmp").status == 404
+
+
+def test_replace_keeps_other_extension_tmp(srv, make_sample):
+    with client(srv) as c:
+        slug = _criar(c)
+        d = srv.app.projects.path(slug)
+        (d / "entrada.mov.tmp").write_bytes(b"em andamento")
+        (d / "entrada.mov").write_bytes(b"velho")
+        r = c.request("PUT", f"/api/projects/{slug}/video", body=make_sample.read_bytes(),
+                      headers={"X-Filename": "a.mp4"})
+        assert r.status == 200
+        assert (d / "entrada.mov.tmp").exists() and not (d / "entrada.mov").exists()
+
+
+def test_config_and_expect_continue(tmp_path):
+    root = tmp_path / "projects"
+    root.mkdir()
+    s = make_server(root, TOKEN, max_upload=1000, test_mode=True)
+    with client(s) as c:
+        assert c.get("/api/config").json() == {"max_upload": 1000}
+        assert c.get("/api/config", token=False).status == 401
+        slug = _criar(c)
+        st = _raw(c, "PUT", f"/api/projects/{slug}/video",
+                  {"X-Filename": "a.mp4", "Content-Length": "999999", "Expect": "100-continue"})
+        assert st == 413
+
+
+def test_content_length_and_range_hardening(srv):
+    with client(srv) as c:
+        slug = _criar(c)
+        base = f"/api/projects/{slug}/video"
+        h = {"X-Filename": "a.mp4"}
+        assert _raw(c, "PUT", base, dict(h, **{"Content-Length": "²"})) == 400
+        assert _raw(c, "PUT", base, dict(h, **{"Content-Length": "9" * 5000})) == 413
+        assert _raw(c, "POST", "/api/projects", {"Content-Length": "9" * 5000}) == 413
+        d = srv.app.projects.path(slug)
+        (d / "entrada.mp4").write_bytes(b"x" * 10)
+        url = f"/api/projects/{slug}/arquivos/entrada.mp4"
+        for rng in ("bytes=0-" + "9" * 5000, "bytes=" + "9" * 5000 + "-", "bytes=-" + "9" * 5000):
+            r = c.get(url, headers={"Range": rng})
+            assert r.status in (206, 416), rng
+        assert c.get(url, headers={"Range": "bytes=" + "9" * 5000 + "-"}).status == 416
+
+
+def test_json_deep_nesting_400(srv):
+    with client(srv) as c:
+        r = c.request("POST", "/api/projects", body=b"[" * 60000)
+        assert r.status == 400
+
+
+def test_project_name_limit(srv):
+    with client(srv) as c:
+        assert c.request("POST", "/api/projects", body={"nome": "a" * 201}).status == 400
+        assert c.request("POST", "/api/projects", body={"nome": "a" * 200}).status == 201
+
+
+def test_brand_missing_is_portuguese_without_path(srv):
+    srv.app.brand_path.unlink()
+    with client(srv) as c:
+        r = c.request("PUT", "/api/brand", body={"handles": ["x"]})
+        assert r.status in (404, 400)
+        assert "/" not in r.json()["erro"] and "marca" in r.json()["erro"]
+
+
+def test_handler_has_socket_timeout():
+    import server
+    assert 0 < server.Handler.timeout <= 120

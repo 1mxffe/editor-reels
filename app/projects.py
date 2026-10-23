@@ -24,6 +24,11 @@ ETAPAS = ("video", "transcricao", "cortes", "legendas", "estilo",
 # pastas servidas por resolve_file (alem de entrada.*)
 PASTAS_PUBLICAS = ("saida", "capa", "materiais", "quadros")
 MAX_COMPONENTES = 4
+EXT_VIDEO = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
+
+
+def _eh_entrada(nome: str) -> bool:
+    return nome.startswith("entrada.") and nome[len("entrada"):] in EXT_VIDEO
 
 
 class ProjectsError(Exception):
@@ -121,7 +126,7 @@ class Projects:
                 or any(len(p) > 255 or len(p.encode("utf-8", "replace")) > 255 for p in partes)):
             raise ProjectsError("arquivo não permitido")
         if len(partes) == 1:
-            permitido = partes[0].startswith("entrada.") and len(partes[0]) > len("entrada.")
+            permitido = _eh_entrada(partes[0])
         else:
             permitido = partes[0] in PASTAS_PUBLICAS
         if not permitido:
@@ -143,7 +148,8 @@ class Projects:
         def tem(rel: str) -> bool:
             return (d / rel).is_file()
 
-        entradas = sorted(p.name for p in d.glob("entrada.*") if p.is_file())
+        entradas = sorted(p.name for p in d.glob("entrada.*")
+                          if p.is_file() and _eh_entrada(p.name))
         etapas_json = _ler_json(d / "etapas.json")
         legendas_ok = isinstance(etapas_json, dict) and etapas_json.get("legendas") is True
         duracao = None

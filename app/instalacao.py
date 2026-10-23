@@ -42,11 +42,7 @@ ITENS: dict[str, tuple[str, str, bool, str, str | None]] = {
         "npm install && npx playwright install chromium"),
 }
 
-ESTADOS = {
-    "READY": "Tudo pronto",
-    "READY WITH LIMITS": "Pronto, com limitações",
-    "MISSING": "Faltam itens obrigatórios",
-}
+ESTADOS = {"READY": "pronto", "READY WITH LIMITS": "pronto com limites"}
 
 
 def traduzir(estado: str, itens: list[dict]) -> dict:
@@ -68,4 +64,5 @@ def traduzir(estado: str, itens: list[dict]) -> dict:
             mensagem = detail
         out.append({"id": id_, "nome": nome, "ok": ok, "opcional": opcional,
                     "mensagem": mensagem, "comando": comando})
-    return {"estado": estado, "itens": out}
+    return {"estado": ESTADOS.get(estado, "faltam itens"), "estado_codigo": estado,
+            "itens": out}

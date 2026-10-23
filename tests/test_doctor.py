@@ -174,3 +174,10 @@ def test_doctor_json_flag_matches_default_exit_code(monkeypatch, capsys):
     capsys.readouterr()
     assert doctor.main(["--json"]) == 1
     assert json.loads(capsys.readouterr().out)["estado"] == "MISSING"
+
+
+def test_doctor_json_is_ascii_safe(monkeypatch, capsys):
+    _all_present(monkeypatch)
+    monkeypatch.setattr(doctor, "_graphics_reason", lambda: "vídeo ausente")
+    doctor.main(["--json"])
+    assert capsys.readouterr().out.isascii()
