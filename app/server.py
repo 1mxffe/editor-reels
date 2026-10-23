@@ -218,9 +218,14 @@ class Handler(BaseHTTPRequestHandler):
             parts = urlsplit(self.path)
             path = parts.path
             if path.startswith("/api/"):
-                if not self._token_ok(self.headers.get("X-Token")):
+                query = parse_qs(parts.query)
+                candidato = self.headers.get("X-Token")
+                if candidato is None and self._rota_arquivo(path):
+                    # <video src> nao manda cabecalho: so aqui a chave pode vir no endereco
+                    candidato = (query.get("t") or [None])[0]
+                if not self._token_ok(candidato):
                     return self.error(401, "Token ausente ou inválido")
-                return self.api(path, parse_qs(parts.query))
+                return self.api(path, query)
             if self.command not in ("GET", "HEAD"):
                 return self.error(405, "Método não permitido")
             if path == "/":
@@ -239,6 +244,14 @@ class Handler(BaseHTTPRequestHandler):
 
     do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = _handle
     do_OPTIONS = do_TRACE = do_CONNECT = _handle
+
+    def _rota_arquivo(self, path: str) -> bool:
+        """GET/HEAD /api/projects/<slug>/arquivos/<rel> (o player do navegador)."""
+        if self.command not in ("GET", "HEAD"):
+            return False
+        partes = path[len("/api/projects/"):].split("/", 2)
+        return (path.startswith("/api/projects/") and len(partes) == 3
+                and partes[1] == "arquivos")
 
     # -- rotas ----------------------------------------------------------------
     def index(self, query):

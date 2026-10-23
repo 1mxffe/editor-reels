@@ -2,10 +2,71 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <meta name="reel-token" content="{{TOKEN}}">
-<title>Editor de Reels</title>
+<title>Editor de Reels · Gutmann &amp; Silva</title>
+<link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/app.js"></script>
 </head>
 <body>
-<p>Editor de Reels</p>
+<a class="pular" href="#painel">Pular para o passo atual</a>
+
+<header class="topo">
+  <div class="marca">
+    <span class="monograma" aria-hidden="true">GS</span>
+    <span class="marca-texto">
+      <strong>Editor de Reels</strong>
+      <span>Gutmann &amp; Silva</span>
+    </span>
+  </div>
+  <div class="topo-acoes">
+    <div id="projeto-atual" class="projeto-atual" aria-live="polite"></div>
+    <button type="button" id="btn-instalacao" class="botao botao-topo">
+      <svg class="icone" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+      <span>Instalação</span>
+    </button>
+  </div>
+</header>
+
+<nav id="passos" aria-label="Passos do Reel"><ol></ol></nav>
+
+<main class="layout">
+  <section id="coluna-player" aria-label="Vídeo">
+    <div class="player-moldura">
+      <video id="player-video" playsinline preload="metadata"></video>
+      <div id="player-vazio" class="player-vazio">
+        <svg class="icone-grande" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 9.5v5l4-2.5-4-2.5Z"/></svg>
+        <p>O vídeo aparece aqui depois que você enviar o arquivo.</p>
+      </div>
+    </div>
+    <div class="player-controles">
+      <button type="button" id="player-menos5" class="botao botao-player" aria-label="Voltar 5 segundos">−5 s</button>
+      <button type="button" id="player-play" class="botao botao-play" aria-label="Tocar">
+        <svg class="icone icone-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5L8 5.5Z"/></svg>
+        <svg class="icone icone-pausa" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.5 5h3v14h-3zM13.5 5h3v14h-3z"/></svg>
+      </button>
+      <button type="button" id="player-mais5" class="botao botao-player" aria-label="Avançar 5 segundos">+5 s</button>
+      <span id="player-tempo" class="player-tempo" aria-label="Tempo do vídeo">0:00 / 0:00</span>
+    </div>
+    <p id="player-legenda" class="player-legenda"></p>
+  </section>
+
+  <section id="painel" tabindex="-1" aria-live="polite">
+    <p class="carregando">Abrindo o editor…</p>
+  </section>
+</main>
+
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+
+<div id="fatal" class="fatal" role="alert" hidden>
+  <div class="fatal-cartao">
+    <span class="monograma" aria-hidden="true">GS</span>
+    <h1 id="fatal-titulo">Não foi possível abrir o editor</h1>
+    <p id="fatal-texto"></p>
+  </div>
+</div>
+
+<noscript><p class="fatal-noscript">O editor precisa do JavaScript ligado no navegador.</p></noscript>
 </body>
 </html>
