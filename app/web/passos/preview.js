@@ -1,7 +1,8 @@
 // Passo 5, Preview: monta uma versao leve (saida/preview.mp4) para assistir e anotar.
 // As notas guardam o instante do video ORIGINAL (como na pagina de revisao); a tela
 // mostra o instante no preview (cortado) com originalToCutTime.
-import { api, el, frase, icone, registrarPasso } from '../nucleo.js';
+import { api, el, icone, registrarPasso } from '../nucleo.js';
+import { traduzir } from '../mensagens.js';
 import { iniciarTarefa, quadroTarefa, versaoDe } from '../tarefa.js';
 import { cutToOriginalTime, originalToCutTime, tempoFino } from '../tempo.js';
 
@@ -28,7 +29,7 @@ function secaoNotas(ctx) {
         { notes: notas.filter((n) => n.text.trim()).map((n) => ({ t: n.t, text: n.text.trim() })) });
       ativos = rev.cuts.filter((c) => c.active);
     } catch (e) {
-      erro.textContent = e.status === 409 ? 'Espere o trabalho em andamento terminar e tente de novo.' : frase(e.mensagem);
+      erro.textContent = e.status === 409 ? 'Espere o trabalho em andamento terminar e tente de novo.' : traduzir(e.mensagem);
       erro.hidden = false;
     }
   }
@@ -67,7 +68,7 @@ function secaoNotas(ctx) {
     adicionar.disabled = false;
     pintar();
   }).catch((e) => {
-    erro.textContent = frase(e.mensagem);
+    erro.textContent = traduzir(e.mensagem);
     erro.hidden = false;
   });
   return secao;
@@ -75,13 +76,15 @@ function secaoNotas(ctx) {
 
 registrarPasso({
   id: 'preview',
+  pronto: (estado) => estado.etapas.preview === 'pronto' && !estado.preview_desatualizado,
   tarefas: ['preview'],
   video: (estado, slug) => (estado.arquivos.preview
     ? { rel: estado.arquivos.preview, rotulo: 'Preview', versao: versaoDe(slug, 'preview') } : null),
   render(container, ctx) {
     const tem = ctx.estado.etapas.preview === 'pronto';
+    const velho = tem && ctx.estado.preview_desatualizado === true;
     const erro = el('p', { class: 'mensagem-erro', role: 'alert', hidden: true });
-    const gerar = el('button', { type: 'button', id: 'preview-gerar', class: `botao ${tem ? 'botao-secundario' : 'botao-primario'}` },
+    const gerar = el('button', { type: 'button', id: 'preview-gerar', class: `botao ${tem && !velho ? 'botao-secundario' : 'botao-primario'}` },
       icone('atualizar'), el('span', {}, tem ? 'Gerar de novo' : 'Gerar preview'));
     gerar.addEventListener('click', async () => {
       gerar.disabled = true;
@@ -89,7 +92,7 @@ registrarPasso({
       try {
         await iniciarTarefa(ctx.slug, 'preview');
       } catch (e) {
-        erro.textContent = e.mensagem;
+        erro.textContent = traduzir(e.mensagem);
         erro.hidden = false;
       } finally {
         gerar.disabled = false;
@@ -97,10 +100,10 @@ registrarPasso({
     });
     const acoes = tem
       ? el('div', { id: 'preview-pronto', class: 'cartao pronto-cartao' },
-        el('div', { class: 'info-topo' }, el('span', { class: 'bola-ok' }, icone('ok')), el('h2', {}, 'Preview pronto')),
+        el('div', { class: 'info-topo' }, el('span', { class: velho ? 'bola-ok bola-aviso' : 'bola-ok' }, icone(velho ? 'atualizar' : 'ok')), el('h2', {}, velho ? 'Preview antigo' : 'Preview pronto')),
         el('p', {}, 'Assista no player. Se algo não estiver bom, volte aos Cortes ou às Legendas e gere de novo.'),
         el('div', { class: 'acoes' }, gerar,
-          el('button', { type: 'button', class: 'botao botao-primario', onclick: () => ctx.ir('final') },
+          velho ? null : el('button', { type: 'button', class: 'botao botao-primario', onclick: () => ctx.ir('final') },
             'Ir para Final', icone('seta'))))
       : el('div', { class: 'cartao comecar' },
         el('h2', {}, 'Monte uma prévia'),
@@ -110,6 +113,8 @@ registrarPasso({
     const quadro = quadroTarefa(ctx.slug, ['preview'], { aoMudar: (ocupado) => { acoes.hidden = ocupado; } });
     container.append(...[
       el('p', { class: 'lead' }, 'Veja como o Reel está ficando antes de gerar o arquivo final.'),
+      velho ? el('p', { id: 'aviso-desatualizado', class: 'mensagem-aviso', role: 'status' },
+        'Você mudou os cortes/legendas depois de gerar este vídeo. Ele não tem as mudanças: gere de novo.') : null,
       quadro, erro, acoes, tem ? secaoNotas(ctx) : null].filter(Boolean));
   },
 });

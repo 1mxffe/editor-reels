@@ -1,7 +1,8 @@
 // Trabalhos longos do Reel (reconhecer a fala, procurar cortes, montar preview/final):
 // comecar, acompanhar (consulta a cada segundo), cancelar e retomar depois de recarregar
 // a pagina. O acompanhamento vive aqui, fora das telas: trocar de passo nao o interrompe.
-import { api, el, frase, relogio } from './nucleo.js';
+import { api, el, relogio } from './nucleo.js';
+import { traduzir } from './mensagens.js';
 
 const INTERVALO = 900;
 export const ROTULOS = {
@@ -218,7 +219,8 @@ export function quadroTarefa(slug, tipos, { aoMudar = () => {}, extra = {} } = {
         titulo.textContent = FALHAS[meu.tipo] || 'Não deu certo.';
         // "a tarefa falhou (codigo N)" nao explica nada: o motivo fica nos detalhes
         const msg = /^a tarefa falhou/i.test(meu.mensagem || '') ? '' : meu.mensagem;
-        sub.textContent = msg ? frase(msg) : 'Abra os detalhes para ver o que aconteceu, ou tente de novo.';
+        if (msg) sub.textContent = traduzir(msg);
+        else sub.textContent = linhas.length ? 'Abra os detalhes para ver o que aconteceu, ou tente de novo.' : 'Tente de novo.';
       }
     }
   }

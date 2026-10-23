@@ -384,7 +384,6 @@ await cenario('recarregar', async () => {
   return r;
 });
 
-out.visivel = { telas: visivel };
 
 // ================================================== 375 px
 await cenario('scroll375', async () => {
@@ -398,7 +397,7 @@ await cenario('scroll375', async () => {
     const pronto = { cortes: '#cortes-lista .corte', legendas: '#lista-frases .frase',
       preview: '#preview-pronto', final: '#final-arquivos li' }[tela];
     await pg.waitForSelector(pronto);
-    await pg.waitForLoadState('networkidle');
+    await esperar(async () => !(await pg.$('#painel [data-ocupado]')));
     medidas[tela] = await semRolagem(pg);
     alvos.push(...await pg.$$eval('#painel button, #painel input, #painel textarea, #painel a.botao, #painel [role="button"]',
       (els, t) => els.filter((e) => e.offsetParent !== null && e.type !== 'file').map((e) => {
@@ -412,6 +411,103 @@ await cenario('scroll375', async () => {
   return r;
 });
 
+// ================================================== mudar cortes depois de gerar
+await cenario('desatualizado', async () => {
+  const st0 = (await api(srvR, 'GET', `/api/projects/${slug}`)).json;
+  if (st0.final_desatualizado || st0.preview_desatualizado) throw new Error('ja comecou desatualizado');
+  const put = await api(srvR, 'PUT', `/api/projects/${slug}/revisao`, { cuts_added: [{ start: 0.6, end: 1.0 }] });
+  if (put.status !== 200) throw new Error('PUT falhou ' + put.status);
+  const estado = (await api(srvR, 'GET', `/api/projects/${slug}`)).json;
+  const ctx = await contexto();
+  const pg = await abrir(ctx, srvR, slug);
+  await pg.click('#passos .passo[data-passo="legendas"]');
+  await pg.waitForSelector('#aviso-desatualizado');
+  const avisoLegendas = (await pg.textContent('#aviso-desatualizado')).trim();
+  await pg.click('#legendas-confirmar');
+  await pg.waitForSelector('#painel[data-passo="preview"] #aviso-desatualizado');
+  await esperar(async () => (await estados(pg)).find((p) => p.id === 'legendas').estado === 'pronto');
+  await screenshot(pg, 'preview-desatualizado-1280-claro.png');
+  const r = {
+    estado, avisoLegendas, passos: await estados(pg),
+    depoisConfirmar: (await api(srvR, 'GET', `/api/projects/${slug}`)).json.legendas_desatualizado,
+    avisoPreview: (await pg.textContent('#aviso-desatualizado')).trim(),
+    botaoPreview: (await pg.textContent('#preview-gerar')).trim(),
+    classeBotaoPreview: await pg.getAttribute('#preview-gerar', 'class'),
+    irParaFinal: await pg.locator('#painel button:has-text("Ir para Final")').count(),
+    erros: pg.__erros,
+  };
+  visivel['preview-desatualizado'] = await textoVisivel(pg);
+  await ctx.close();
+  return r;
+});
+
+// ================================================== ultima palavra passa do fim
+await cenario('ultimaPalavra', async () => {
+  const s = await novoProjeto(srvR, 'Reel ultima');
+  const d = path.join(srvR.root, s);
+  const dur = 6.0;
+  fs.writeFileSync(path.join(d, 'transcricao.json'), JSON.stringify({ duration: dur, words: [
+    { w: 'Prazo', start: 0.5, end: 1.0 }, { w: 'curto', start: 1.0, end: 1.6 },
+    { w: 'Leia', start: 2.0, end: 2.5 }, { w: 'tudo', start: 5.8, end: 6.03 }] }));
+  const j = (await api(srvR, 'POST', `/api/projects/${s}/jobs/cortes`, {})).json.job_id;
+  await esperar(async () => (await api(srvR, 'GET', `/api/jobs/${j}`)).json.estado !== 'rodando', 30000);
+  const ctx = await contexto();
+  const pg = await abrir(ctx, srvR, s);
+  await pg.click('#passos .passo[data-passo="cortes"]');
+  await pg.waitForSelector('#cortes-palavras .palavra[data-i="3"]');
+  await pg.click('#cortes-palavras .palavra[data-i="3"]');
+  await esperar(async () => (await pg.getAttribute('#cortes-palavras .palavra[data-i="3"]', 'data-estado')) === 'cortada'
+    || !(await pg.$eval('#cortes-erro', (e) => e.hidden)));
+  await esperar(async () => !(await pg.$('#painel [data-ocupado]')));
+  const rv = await revisao(srvR, s);
+  const corte = rv.cuts.find((c) => c.active && c.kind === 'manual') || {};
+  const r = {
+    estado: await pg.getAttribute('#cortes-palavras .palavra[data-i="3"]', 'data-estado'),
+    erro: await pg.$eval('#cortes-erro', (e) => (e.hidden ? '' : e.textContent)), corte, duracao: rv.duration,
+  };
+  // confirmar com uma gravacao lenta em curso: espera e mostra o erro tardio
+  await pg.click('#passos .passo[data-passo="legendas"]');
+  await pg.waitForSelector('#lista-frases .frase textarea');
+  await pg.route('**/revisao', async (route) => {
+    if (route.request().method() === 'PUT') await new Promise((ok) => setTimeout(ok, 1500));
+    await route.continue();
+  });
+  await pg.fill('#lista-frases .frase[data-idx="0"] textarea', 'texto {x}');
+  await pg.click('#legendas-confirmar');
+  await pg.waitForSelector('#lista-frases .frase[data-idx="0"] .frase-erro:not([hidden])', { timeout: 10000 });
+  await esperar(async () => !(await pg.$eval('#legendas-confirmar', (b) => b.disabled)), 10000);
+  out.confirmarEspera = {
+    painel: await pg.getAttribute('#painel', 'data-passo'),
+    erro: (await pg.textContent('#lista-frases .frase[data-idx="0"] .frase-erro')).trim(),
+    confirmado: (await api(srvR, 'GET', `/api/projects/${s}`)).json.legendas_confirmadas,
+    erros: pg.__erros,
+  };
+  r.erros = pg.__erros;
+  await ctx.close();
+  return r;
+});
+
+// ================================================== traducao de mensagens
+await cenario('mensagens', async () => {
+  const m = await import(pathToFileURL(path.resolve(path.dirname(cfg.tempo_js), 'mensagens.js')).href);
+  const brutos = [
+    'Ffprobe falhou (codigo 1): [mov,mp4 @ 0x55fe] moov atom not found.',
+    'legenda da frase 1: sem barra invertida (\\) nem chaves ({ }); a legenda nao desenha esses caracteres',
+    'legenda da frase 0: no maximo 2 linhas',
+    "frase 0: o texto automatico mudou desde a revisao (era 'x', agora 'y'); recarregue a pagina e edite de novo",
+    'corte novo fora do intervalo: 5.9-6.02 (precisa 0 <= start < end <= 6.0)',
+    'arquivo ausente: <projeto>/transcricao.json',
+    'transcreva o vídeo primeiro',
+    'já existe uma tarefa rodando neste projeto',
+    'a revisão excedeu o tempo limite',
+    'o arquivo não parece ser um vídeo',
+    'ainda não há arquivos prontos neste Reel',
+    'Erro estranho: /usr/lib/x.py linha 3',
+  ];
+  return { pares: brutos.map((b) => [b, m.traduzir(b)]), generica: m.GENERICA };
+});
+
+out.visivel = { telas: visivel };
 await browser.close();
 for (const s of srvs) s.parar();
 process.stdout.write(JSON.stringify(out));

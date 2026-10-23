@@ -131,7 +131,8 @@ def test_caption_edit_pinned_and_error_shown(results):
     assert e0[0]["base_text"] == r["base0"], "edicao presa ao texto automatico"
     assert r["tagEditada"] == "Editada"
     assert "chaves" in r["erroChaves"] and "{" in r["erroChaves"], r["erroChaves"]
-    assert r["erroChaves"].startswith("Legenda da frase"), "mensagem do servidor por extenso"
+    assert r["erroChaves"].startswith(f"Na frase {r['frases']}"), "mensagem traduzida, frase numerada a partir de 1"
+    assert "não mostra" in r["erroChaves"], "com acento"
     assert "2 linhas" in r["erroLinhas"]
     assert r["textoAposErro"] == "texto {ruim}", "o texto digitado nao some no erro"
     assert r["confirmado"] is True
@@ -142,7 +143,9 @@ def test_caption_edit_pinned_and_error_shown(results):
 
 
 # ------------------------------------------------------------------ preview
-def test_preview_generates_and_plays(results):
+def test_preview_generates_and_player_loads_it(results):
+    """Gera saida/preview.mp4 (540x960 via ffprobe) e o player passa a apontar para ele.
+    Nao confere a reproducao: o Chromium do Playwright nao toca H.264."""
     r = _ok(results, "preview")
     assert r["tarefas"] == ["preview"]
     arq = Path(r["root"]) / r["slug"] / "saida" / "preview.mp4"
@@ -167,7 +170,7 @@ def test_final_1080x1920(results):
     reg = [json.loads(x) for x in (Path(r["root"]) / ".abrir-pasta.log").read_text().splitlines()]
     assert reg[-1]["argv"][1] == str(Path(r["root"]) / r["slug"] / "saida")
     assert reg[-1]["argv"][0] in ("open", "xdg-open")
-    assert "pasta" in r["toast"].lower()
+    assert "Pedi ao computador para abrir a pasta" in r["toast"], "so afirma o que sabe"
 
 
 # --------------------------------------------------- cancelar e recarregar
@@ -370,3 +373,118 @@ def test_state_exposes_captions_confirmation(root):
         assert st["legendas_confirmadas"] is False, "legendas.json sozinho nao e confirmacao"
         (root / slug / "etapas.json").write_text('{"legendas": true}')
         assert c.get(f"/api/projects/{slug}").json()["legendas_confirmadas"] is True
+
+
+# --------------------------------------------------------- fix round 1
+def test_stale_outputs_warn_and_lock_final_ui(results):
+    r = _ok(results, "desatualizado")
+    assert r["estado"]["preview_desatualizado"] is True and r["estado"]["final_desatualizado"] is True
+    assert r["estado"]["legendas_desatualizado"] is True
+    assert "depois de gerar este vídeo" in r["avisoPreview"]
+    assert "Gerar de novo" in r["botaoPreview"] and "botao-primario" in r["classeBotaoPreview"]
+    assert r["irParaFinal"] == 0
+    passos = {p["id"]: p for p in r["passos"]}
+    assert passos["legendas"]["estado"] == "pronto", "confirmado de novo"
+    assert passos["preview"]["estado"] != "pronto", "preview antigo nao conta como pronto"
+    assert passos["final"]["bloqueado"] is True, "video antigo nao libera o Final"
+    assert "confirme de novo" in r["avisoLegendas"]
+    assert r["depoisConfirmar"] is False, "confirmar de novo limpa o aviso das legendas"
+
+
+def test_last_word_past_duration_is_clamped(results):
+    r = _ok(results, "ultimaPalavra")
+    assert r["estado"] == "cortada", r
+    assert r["erro"] == ""
+    assert r["corte"]["end"] <= r["duracao"] and r["corte"]["start"] < r["corte"]["end"]
+
+
+def test_confirm_waits_for_pending_caption_save(results):
+    r = _ok(results, "confirmarEspera")
+    assert r["painel"] == "legendas", "erro tardio segura a confirmacao"
+    assert "chaves" in r["erro"]
+    assert r["confirmado"] is False
+
+
+def test_server_messages_translated_without_jargon(results):
+    r = _ok(results, "mensagens")
+    for bruto, texto in r["pares"]:
+        achados = sorted({m.group(0) for m in shell.PROIBIDOS.finditer(texto)})
+        assert not achados, (bruto, texto)
+        assert not re.search(r"\b(nao|voce|automatico|codigo)\b", texto), (bruto, texto)
+        assert "/" not in texto.replace("cortes/legendas", ""), (bruto, texto)
+    d = dict(r["pares"])
+    assert d["Ffprobe falhou (codigo 1): [mov,mp4 @ 0x55fe] moov atom not found."].startswith("Não consegui ler este vídeo")
+    assert "fim do vídeo" in d["corte novo fora do intervalo: 5.9-6.02 (precisa 0 <= start < end <= 6.0)"]
+    assert "Recarregue" in d["frase 0: o texto automatico mudou desde a revisao (era 'x', agora 'y'); recarregue a pagina e edite de novo"]
+    assert d["Erro estranho: /usr/lib/x.py linha 3"] == r["generica"]
+
+
+def _fazer_cortes(c, srv, slug):
+    import fixtures_app
+    d = srv.app.root / slug
+    fixtures_app.montar_projeto(d)
+    c.request("PUT", f"/api/projects/{slug}/etapas/legendas", body={"confirmado": True})
+    return d
+
+
+def test_fingerprint_marks_outputs_stale(root):
+    import os
+    import projects
+    srv = make_server(root, TOKEN, test_mode=True)
+    with client(srv) as c:
+        slug = c.request("POST", "/api/projects", body={"nome": "Impressao"}).json()["slug"]
+        d = _fazer_cortes(c, srv, slug)
+        url = f"/api/projects/{slug}"
+
+        def gerar():
+            for tipo in ("preview", "final"):
+                projects.registrar_origem(d, tipo)
+                arq = d / "saida" / f"{tipo}.mp4"
+                arq.write_bytes(b"x")
+                t = (d / "saida" / f".origem-{tipo}.json").stat().st_mtime + 1
+                os.utime(arq, (t, t))
+
+        gerar()
+        st = c.get(url).json()
+        assert (st["legendas_desatualizado"], st["preview_desatualizado"], st["final_desatualizado"]) == (False,) * 3
+        assert c.request("PUT", url + "/revisao", body={"notes": [{"t": 1, "text": "oi"}]}).status == 200
+        st = c.get(url).json()
+        assert (st["legendas_desatualizado"], st["preview_desatualizado"], st["final_desatualizado"]) == (False,) * 3
+        assert c.request("PUT", url + "/revisao", body={"cuts_added": [{"start": 4.2, "end": 4.6}]}).status == 200
+        st = c.get(url).json()
+        assert (st["legendas_desatualizado"], st["preview_desatualizado"], st["final_desatualizado"]) == (True,) * 3
+        c.request("PUT", url + "/etapas/legendas", body={"confirmado": True})
+        gerar()
+        st = c.get(url).json()
+        assert (st["legendas_desatualizado"], st["preview_desatualizado"], st["final_desatualizado"]) == (False,) * 3
+        # legenda editada tambem conta
+        c.request("PUT", url + "/revisao", body={"caption_edits": {"0": {
+            "text": "Outro texto", "base_text": c.get(url + "/revisao").json()["phrases"][0]["base_text"]}}})
+        assert c.get(url).json()["preview_desatualizado"] is True
+
+
+def test_generation_registers_origin_and_failed_run_stays_stale(root, monkeypatch):
+    srv = make_server(root, TOKEN, test_mode=True)
+    with client(srv) as c:
+        slug = c.request("POST", "/api/projects", body={"nome": "Origem"}).json()["slug"]
+        d = _fazer_cortes(c, srv, slug)
+        (d / "saida").mkdir(exist_ok=True)
+        (d / "saida" / "preview.mp4").write_bytes(b"velho")
+        r = c.request("POST", f"/api/projects/{slug}/jobs/preview", body={})
+        assert r.status == 202
+        assert (d / "saida" / ".origem-preview.json").is_file()
+        job = _esperar_job(c, r.json()["job_id"], prazo=60)
+        assert job["estado"] == "erro"  # entrada falsa: o render falha
+        assert c.get(f"/api/projects/{slug}").json()["preview_desatualizado"] is True, \
+            "arquivo mais velho que a geracao registrada e o antigo"
+
+
+def test_job_log_hides_project_paths(root):
+    real = make_server(root, TOKEN)
+    with client(real) as c:
+        slug = _projeto(c, real)
+        job_id = c.request("POST", f"/api/projects/{slug}/jobs/transcrever", body={}).json()["job_id"]
+        _esperar_job(c, job_id, prazo=120)
+        log = c.get(f"/api/jobs/{job_id}").json()["log"]
+        assert log, "o log deveria ter a saida do erro"
+        assert not any(str(root) in linha for linha in log), log

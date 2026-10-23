@@ -1,8 +1,9 @@
 // Passo 2, Cortes: reconhecer a fala, procurar pausas/muletas/repeticoes e decidir o que
 // sai. Cada clique ja grava no Reel (PUT /revisao com cuts_removed / cuts_added).
-import { api, el, frase, icone, registrarPasso, relogio } from '../nucleo.js';
+import { api, el, icone, registrarPasso, relogio } from '../nucleo.js';
 import { iniciarTarefa, quadroTarefa, rodando } from '../tarefa.js';
 import { segundos, tempoFino } from '../tempo.js';
+import { traduzir } from '../mensagens.js';
 
 const TIPOS = ['transcrever', 'cortes'];
 const AVISO_MODELO = 'Na primeira vez baixa o modelo de voz; pode demorar alguns minutos.';
@@ -46,7 +47,7 @@ function palavrasDoCorte(rev, c) {
 
 function mensagemDeErro(e) {
   if (e.status === 409) return 'Espere o trabalho em andamento terminar e tente de novo.';
-  return e.mensagem;
+  return traduzir(e.mensagem);
 }
 
 function telaRevisao(ctx, area) {
@@ -111,8 +112,12 @@ function telaRevisao(ctx, area) {
   function clicarPalavra(w) {
     ctx.player.irPara(w.start); // o player mostra o video original
     const ativos = rev.cuts.filter((c) => c.active && dentro(c, meio(w)));
-    if (ativos.length) salvar({ cuts_removed: ativos.map((c) => c.id) });
-    else salvar({ cuts_added: [{ start: w.start, end: w.end }] });
+    if (ativos.length) { salvar({ cuts_removed: ativos.map((c) => c.id) }); return; }
+    // a fala reconhecida pode passar do fim do video por milissegundos
+    const start = Math.max(0, w.start);
+    const end = Math.min(w.end, rev.duration);
+    if (end <= start) { mostrarErro('Essa palavra fica depois do fim do vídeo; não há o que cortar.'); return; }
+    salvar({ cuts_added: [{ start, end }] });
   }
 
   function alternarCorte(c) {
@@ -149,6 +154,9 @@ function telaRevisao(ctx, area) {
         onclick: () => alternarCorte(it.c),
       }, `pausa ${segundos(it.c.end - it.c.start)}`);
     }));
+    if (!rev.words.length) {
+      palavras.replaceChildren(el('p', { class: 'suave' }, 'Nenhuma fala reconhecida neste vídeo.'));
+    }
 
     const cortes = cortesDaLista(rev);
     lista.replaceChildren(...(cortes.length ? cortes.map((c) => {
@@ -175,7 +183,7 @@ function telaRevisao(ctx, area) {
     rev = r;
     pintar();
   }).catch((e) => {
-    area.replaceChildren(el('p', { class: 'mensagem-erro', role: 'alert' }, frase(e.mensagem)));
+    area.replaceChildren(el('p', { class: 'mensagem-erro', role: 'alert' }, traduzir(e.mensagem)));
   });
 }
 
@@ -187,7 +195,7 @@ function botaoComecar(ctx, id, texto, tipo, erro) {
     try {
       await iniciarTarefa(ctx.slug, tipo);
     } catch (e) {
-      erro.textContent = e.mensagem;
+      erro.textContent = traduzir(e.mensagem);
       erro.hidden = false;
     } finally {
       b.disabled = false;

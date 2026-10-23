@@ -5,6 +5,7 @@ So le/escreve dentro de ``projects/``. A escrita atomica reutiliza
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -29,6 +30,43 @@ EXT_VIDEO = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
 
 def _eh_entrada(nome: str) -> bool:
     return nome.startswith("entrada.") and nome[len("entrada"):] in EXT_VIDEO
+
+
+def impressao(d: Path) -> str:
+    """Impressao digital do que entra no video: cortes ativos + edicoes de legenda.
+    Funcao pura dos arquivos; notas e graficos nao contam. ``review_apply`` regrava os
+    arquivos a cada PUT (ate so de nota), por isso compara o conteudo canonico, nunca mtime."""
+    cortes = _ler_json(Path(d) / "cortes.json")
+    legendas = _ler_json(Path(d) / "legendas.json")
+    cuts = cortes.get("cuts", []) if isinstance(cortes, dict) else []
+    edits = legendas.get("edits", []) if isinstance(legendas, dict) else []
+    bruto = json.dumps({"cuts": cuts, "edits": edits}, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(bruto.encode("utf-8")).hexdigest()
+
+
+def arquivo_origem(d: Path, tipo: str) -> Path:
+    return Path(d) / "saida" / f".origem-{tipo}.json"
+
+
+def registrar_origem(d: Path, tipo: str) -> None:
+    """Chamado ao comecar preview/final: guarda a impressao usada nesta geracao."""
+    (Path(d) / "saida").mkdir(exist_ok=True)
+    common.write_json_atomic(arquivo_origem(d, tipo), {"impressao": impressao(d)})
+
+
+def _desatualizado(d: Path, tipo: str, rel: str, atual: str) -> bool:
+    """Saida existe e (foi gerada antes da origem registrada, ou a impressao mudou).
+    Sem origem registrada (projeto antigo): nao se sabe, entao nao marca."""
+    saida, origem = Path(d) / rel, arquivo_origem(d, tipo)
+    if not saida.is_file() or not origem.is_file():
+        return False
+    dados = _ler_json(origem)
+    try:
+        if saida.stat().st_mtime < origem.stat().st_mtime:
+            return True  # a geracao registrada nao terminou bem: o arquivo e o antigo
+    except OSError:
+        return False
+    return not isinstance(dados, dict) or dados.get("impressao") != atual
 
 
 class ProjectsError(Exception):
@@ -152,6 +190,9 @@ class Projects:
                           if p.is_file() and _eh_entrada(p.name))
         etapas_json = _ler_json(d / "etapas.json")
         legendas_ok = isinstance(etapas_json, dict) and etapas_json.get("legendas") is True
+        atual = impressao(d)
+        base = etapas_json.get("legendas_base") if isinstance(etapas_json, dict) else None
+        legendas_velhas = legendas_ok and isinstance(base, str) and base != atual
         duracao = None
         trans = _ler_json(d / "transcricao.json")
         if isinstance(trans, dict):
@@ -185,4 +226,8 @@ class Projects:
                 "etapas": {k: ("pronto" if feito[k] else "pendente") for k in ETAPAS},
                 # so o "Confirmar legendas" (etapas.json); legendas.json sozinho nao conta
                 "legendas_confirmadas": legendas_ok,
+                # mudou cortes/legendas depois de confirmar ou de gerar o video
+                "legendas_desatualizado": legendas_velhas,
+                "preview_desatualizado": _desatualizado(d, "preview", "saida/preview.mp4", atual),
+                "final_desatualizado": _desatualizado(d, "final", "saida/final.mp4", atual),
                 "arquivos": arquivos}

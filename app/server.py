@@ -34,6 +34,7 @@ import instalacao  # noqa: E402
 import revisao_api  # noqa: E402
 import tarefas  # noqa: E402
 from jobs import ID_RE as JOB_ID_RE, JobBusy, Jobs  # noqa: E402
+import projects as projects_mod  # noqa: E402
 from projects import EXT_VIDEO, Projects, ProjectsError  # noqa: E402
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -412,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
                     if not self._permitir("GET"):
                         return
                     try:
-                        return self.json_reply(200, self.app.jobs.get(resto[0]))
+                        return self.json_reply(200, self._job_limpo(self.app.jobs.get(resto[0])))
                     except KeyError:
                         return self.error(404, "Tarefa não encontrada")
                 if len(resto) == 2 and resto[1] == "cancelar":
@@ -445,6 +446,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_reply(409, {"erro": "a revisão deste projeto está em andamento",
                                          "codigo": "revisao_em_andamento"})
         try:
+            if tipo in ("preview", "final"):  # o que estes cortes/legendas vao gerar
+                projects_mod.registrar_origem(d, tipo)
             job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT,
                                          tarefas.saidas(tipo), ocultar=d)
         except JobBusy:
@@ -465,11 +468,19 @@ class Handler(BaseHTTPRequestHandler):
         jid = jobs.ativo_em(slug)
         if jid:
             try:
-                ativo = jobs.get(jid)
+                ativo = self._job_limpo(jobs.get(jid))
             except KeyError:
                 ativo = None
         recentes = [{k: v for k, v in j.items() if k != "log"} for j in jobs.recentes(slug)]
         self.json_reply(200, {"ativo": ativo, "recentes": recentes})
+
+    def _job_limpo(self, job: dict) -> dict:
+        """Linhas do log sem o caminho do projeto nem caminhos absolutos (como a mensagem)."""
+        try:
+            d = self.app.projects.path(job.get("slug"))
+        except ProjectsError:
+            return dict(job, log=[])
+        return dict(job, log=[revisao_api.sanitizar(x, d) for x in job.get("log", [])])
 
     def api_abrir_pasta(self, slug: str):
         """Abre ``projects/<slug>/saida`` no Finder/gerenciador de arquivos. Nunca usa
@@ -559,6 +570,7 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError):
                 pass
             atual["legendas"] = corpo["confirmado"]
+            atual["legendas_base"] = projects_mod.impressao(d)
             try:
                 common.write_json_atomic(d / "etapas.json", atual)
             except OSError:

@@ -1,6 +1,7 @@
 // Passo 8, Final: monta saida/final.mp4 (1080x1920), mostra no player, abre a pasta
 // do Reel no computador e lista os arquivos prontos para baixar.
 import { api, el, icone, registrarPasso, toast, urlArquivo } from '../nucleo.js';
+import { traduzir } from '../mensagens.js';
 import { iniciarTarefa, quadroTarefa, versaoDe } from '../tarefa.js';
 
 const ARQUIVOS = [
@@ -24,6 +25,7 @@ function listaArquivos(ctx) {
 
 registrarPasso({
   id: 'final',
+  pronto: (estado) => estado.etapas.final === 'pronto' && !estado.final_desatualizado,
   tarefas: ['final'],
   video: (estado, slug) => {
     if (estado.arquivos.final) return { rel: estado.arquivos.final, rotulo: 'Versão final', versao: versaoDe(slug, 'final') };
@@ -32,8 +34,9 @@ registrarPasso({
   },
   render(container, ctx) {
     const tem = ctx.estado.etapas.final === 'pronto';
+    const velho = tem && ctx.estado.final_desatualizado === true;
     const erro = el('p', { class: 'mensagem-erro', role: 'alert', hidden: true });
-    const gerar = el('button', { type: 'button', id: 'final-gerar', class: `botao ${tem ? 'botao-secundario' : 'botao-primario'}` },
+    const gerar = el('button', { type: 'button', id: 'final-gerar', class: `botao ${tem && !velho ? 'botao-secundario' : 'botao-primario'}` },
       icone('atualizar'), el('span', {}, tem ? 'Gerar de novo' : 'Gerar versão final'));
     gerar.addEventListener('click', async () => {
       gerar.disabled = true;
@@ -41,7 +44,7 @@ registrarPasso({
       try {
         await iniciarTarefa(ctx.slug, 'final');
       } catch (e) {
-        erro.textContent = e.mensagem;
+        erro.textContent = traduzir(e.mensagem);
         erro.hidden = false;
       } finally {
         gerar.disabled = false;
@@ -53,18 +56,18 @@ registrarPasso({
       abrir.disabled = true;
       try {
         await api('POST', `/api/projects/${encodeURIComponent(ctx.slug)}/abrir-pasta`, {});
-        toast('A pasta com os arquivos do Reel foi aberta no computador.', 'ok');
+        toast('Pedi ao computador para abrir a pasta do Reel.', 'ok');
       } catch (e) {
-        toast(e.mensagem, 'erro');
+        toast(traduzir(e.mensagem), 'erro');
       } finally {
         abrir.disabled = false;
       }
     });
     const acoes = tem
       ? el('div', { id: 'final-pronto', class: 'cartao pronto-cartao' },
-        el('div', { class: 'info-topo' }, el('span', { class: 'bola-ok' }, icone('ok')), el('h2', {}, 'Reel pronto')),
+        el('div', { class: 'info-topo' }, el('span', { class: velho ? 'bola-ok bola-aviso' : 'bola-ok' }, icone(velho ? 'atualizar' : 'ok')), el('h2', {}, velho ? 'Versão final antiga' : 'Reel pronto')),
         el('p', {}, 'O arquivo final está na pasta do Reel. Abra a pasta para enviar ao celular ou publicar.'),
-        el('div', { class: 'acoes' }, abrir, gerar))
+        el('div', { class: 'acoes' }, ...(velho ? [gerar, abrir] : [abrir, gerar])))
       : el('div', { class: 'cartao comecar' },
         el('h2', {}, 'Gere o Reel pronto'),
         el('p', {}, 'Monta o vídeo no tamanho do Instagram (1080 × 1920), com os cortes e as legendas, em qualidade alta.'),
@@ -74,6 +77,8 @@ registrarPasso({
     const temArquivos = ARQUIVOS.some((a) => ctx.estado.arquivos[a.chave]);
     container.append(...[
       el('p', { class: 'lead' }, 'Último passo: o Reel no tamanho certo, pronto para publicar.'),
+      velho ? el('p', { id: 'aviso-desatualizado', class: 'mensagem-aviso', role: 'status' },
+        'Você mudou os cortes/legendas depois de gerar este vídeo. Ele não tem as mudanças: gere de novo.') : null,
       quadro, erro, acoes, temArquivos ? listaArquivos(ctx) : null].filter(Boolean));
   },
 });
