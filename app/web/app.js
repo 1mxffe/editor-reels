@@ -1,12 +1,17 @@
 // Casca da pagina: barra de passos, painel, player e troca de projeto.
 // Os passos de verdade vivem em passos/*.js e se registram via registrarPasso.
 import {
-  ORDEM, TOKEN_VALIDO, api, bloqueios, el, gravarUltimo, icone, lerUltimo, passo,
+  ORDEM, TOKEN_VALIDO, api, bloqueios, el, gravarUltimo, icone, lerUltimo, obrigatorio, passo,
   passoPronto, quandoChaveInvalida, registrarPasso, toast, urlArquivo, Erro,
 } from './nucleo.js';
 import { criarPlayer } from './player.js';
+import { descobrir, quandoTerminar } from './tarefa.js';
 import './passos/instalacao.js';
 import './passos/video.js';
+import './passos/cortes.js';
+import './passos/legendas.js';
+import './passos/preview.js';
+import './passos/final.js';
 
 export { api, el, toast, registrarPasso, urlArquivo, Erro };
 
@@ -105,7 +110,11 @@ function pintarPlayer() {
   const arq = app.estado && app.estado.arquivos;
   document.body.toggleAttribute('data-tem-video', !!(app.slug && arq && (arq.final || arq.preview || arq.entrada)));
   if (!app.slug || !arq) return app.player.limpar();
-  if (arq.final) app.player.definir(app.slug, arq.final, { rotulo: 'Versão final' });
+  const def = passo(app.atual);
+  const escolha = def && typeof def.video === 'function' ? def.video(app.estado, app.slug) : null;
+  if (escolha && escolha.rel) {
+    app.player.definir(app.slug, escolha.rel, { rotulo: escolha.rotulo || '', versao: escolha.versao || '' });
+  } else if (arq.final) app.player.definir(app.slug, arq.final, { rotulo: 'Versão final' });
   else if (arq.preview) app.player.definir(app.slug, arq.preview, { rotulo: 'Prévia mais recente' });
   else if (arq.entrada) app.player.definir(app.slug, arq.entrada, { rotulo: 'Vídeo original' });
   else app.player.limpar();
@@ -145,6 +154,7 @@ async function ir(id, { focar = false } = {}) {
   }
   app.atual = id;
   pintarPassos();
+  pintarPlayer();
   render();
   if (focar) document.getElementById('painel').focus();
   if (app.slug) atualizar({ repintarPainel: false });
@@ -178,6 +188,7 @@ async function abrirProjeto(slug, { passoInicial = null } = {}) {
   app.slug = slug;
   app.estado = null;
   gravarUltimo(slug);
+  descobrir(slug); // trabalho em andamento deste Reel (ex.: depois de recarregar)
   await atualizar();
   if (app.slug !== slug) return; // outro Reel foi aberto enquanto este carregava
   ir(passoInicial || proximoPasso());
@@ -194,7 +205,7 @@ function fecharProjeto() {
 
 function proximoPasso() {
   const trava = bloqueios(app.estado);
-  const p = ORDEM.find((x) => !trava[x.id] && !x.opcional && !passoPronto(x.id, app.estado));
+  const p = ORDEM.find((x) => !trava[x.id] && obrigatorio(x.id) && !passoPronto(x.id, app.estado));
   return p ? p.id : 'final';
 }
 
@@ -224,8 +235,6 @@ async function iniciar() {
     fatal('Abra o editor pelo ícone', 'Esta página precisa ser aberta pelo ícone do Editor de Reels; ela não tem a chave de acesso.');
     return;
   }
-  // a chave ja foi lida do <meta>; tira-la da barra de endereco evita que seja copiada
-  try { window.history.replaceState(null, '', window.location.pathname); } catch { /* sem history */ }
   app.player = criarPlayer();
   pintarPassos();
   let config;
@@ -255,8 +264,17 @@ async function iniciar() {
     || !['READY', 'READY WITH LIMITS'].includes(doctor.estado_codigo);
   pintarProjeto();
   pintarPlayer();
+  if (app.slug) descobrir(app.slug);
   ir(precisaInstalar ? 'instalacao' : app.slug ? proximoPasso() : 'video');
 }
+
+// fim de um trabalho do Reel aberto: recarrega o estado; a tela repinta se o trabalho e dela
+quandoTerminar((slug, job) => {
+  if (slug !== app.slug) return;
+  const def = passo(app.atual);
+  const daTela = !!(def && Array.isArray(def.tarefas) && def.tarefas.includes(job.tipo));
+  atualizar({ repintarPainel: daTela });
+});
 
 document.getElementById('btn-instalacao').addEventListener('click', () => ir('instalacao', { focar: true }));
 iniciar();

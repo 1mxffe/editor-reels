@@ -100,6 +100,18 @@ class App:
         self.replace_lock = threading.Lock()  # troca do entrada.<ext> + limpeza
 
 
+def transcricao_falsa(server) -> bool:
+    """Transcricao fixa dos testes no lugar do Whisper: so com o servidor criado em
+    ``test_mode`` E ``REEL_APP_FAKE_TRANSCRIBE=1``. Fora do modo de teste a variavel
+    e ignorada."""
+    return bool(getattr(server, "test_mode", False)) and os.environ.get("REEL_APP_FAKE_TRANSCRIBE") == "1"
+
+
+def comando_abrir_pasta(pasta: Path) -> list[str]:
+    """argv (sem shell) que abre a pasta no gerenciador de arquivos do sistema."""
+    return ["open" if sys.platform == "darwin" else "xdg-open", str(pasta)]
+
+
 def _doctor_check():
     import doctor  # scripts/ ja esta no sys.path (via projects)
     return doctor.check()
@@ -347,10 +359,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not self._permitir("PUT"):
                     return
                 return self.api_upload(slug)
+            if resto[1] == "jobs" and len(resto) == 2:
+                if not self._permitir("GET"):
+                    return
+                return self.api_jobs_projeto(slug)
             if resto[1] == "jobs" and len(resto) == 3:
                 if not self._permitir("POST"):
                     return
                 return self.api_job_start(slug, unquote(resto[2]))
+            if resto[1] == "abrir-pasta" and len(resto) == 2:
+                if not self._permitir("POST"):
+                    return
+                return self.api_abrir_pasta(slug)
             if resto[1] == "revisao" and len(resto) == 2:
                 if not self._permitir("GET", "PUT"):
                     return
@@ -394,7 +414,8 @@ class Handler(BaseHTTPRequestHandler):
         if corpo is None:
             corpo = {}
         try:
-            argv = tarefas.argv(tipo, d, **tarefas.validar(tipo, corpo))
+            argv = tarefas.argv(tipo, d, falso=transcricao_falsa(self.server),
+                                **tarefas.validar(tipo, corpo))
         except ValueError as e:
             return self.error(400, str(e))
         trava = revisao_api.trava(slug)
@@ -410,6 +431,56 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             trava.release()
         self.json_reply(202, {"job_id": job_id})
+
+    def api_jobs_projeto(self, slug: str):
+        """Tarefa ativa (completa, com log) e as recentes (resumo) do projeto: a pagina
+        usa para retomar o acompanhamento depois de recarregar."""
+        if self._projeto(slug) is None:
+            return
+        self._drenar()
+        jobs = self.app.jobs
+        ativo = None
+        jid = jobs.ativo_em(slug)
+        if jid:
+            try:
+                ativo = jobs.get(jid)
+            except KeyError:
+                ativo = None
+        recentes = [{k: v for k, v in j.items() if k != "log"} for j in jobs.recentes(slug)]
+        self.json_reply(200, {"ativo": ativo, "recentes": recentes})
+
+    def api_abrir_pasta(self, slug: str):
+        """Abre ``projects/<slug>/saida`` no Finder/gerenciador de arquivos. Nunca usa
+        shell; o caminho vem so de Projects.path. Em modo de teste so registra o argv
+        em ``<root>/.abrir-pasta.log`` (uma linha JSON por chamada)."""
+        d = self._projeto(slug)
+        if d is None:
+            return
+        self._drenar()
+        pasta = d / "saida"
+        try:
+            ok = (pasta.is_dir() and not pasta.is_symlink()
+                  and pasta.resolve().parent == d.resolve())
+        except (OSError, RuntimeError):
+            ok = False
+        if not ok:
+            return self.error(409, "ainda não há arquivos prontos neste Reel")
+        argv = comando_abrir_pasta(pasta)
+        if self.server.test_mode:
+            try:
+                with open(self.app.root / ".abrir-pasta.log", "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"argv": argv}, ensure_ascii=False) + "\n")
+            except OSError:
+                return self.error(500, "não foi possível abrir a pasta")
+            return self.json_reply(200, {"ok": True})
+        try:
+            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, start_new_session=True,
+                                    close_fds=True)
+        except OSError:
+            return self.error(500, "não foi possível abrir a pasta neste computador")
+        threading.Thread(target=proc.wait, name="abrir-pasta", daemon=True).start()  # sem zumbi
+        self.json_reply(200, {"ok": True})
 
     # -- revisao --------------------------------------------------------------
     def api_revisao(self, slug: str):

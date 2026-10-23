@@ -183,4 +183,6 @@ class Projects:
         meta = self._meta(d)
         return {"slug": slug, "nome": meta["nome"], "duracao": duracao,
                 "etapas": {k: ("pronto" if feito[k] else "pendente") for k in ETAPAS},
+                # so o "Confirmar legendas" (etapas.json); legendas.json sozinho nao conta
+                "legendas_confirmadas": legendas_ok,
                 "arquivos": arquivos}

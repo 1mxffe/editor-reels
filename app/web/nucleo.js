@@ -96,6 +96,10 @@ const ICONES = {
   copiar: ['M8.5 8.5h11v11h-11z', 'M15.5 8.5v-4h-11v11h4'],
   atualizar: ['M19.5 12a7.5 7.5 0 1 1-2.2-5.3', 'M19.5 4v4.5H15'],
   pasta: ['M3.5 6.5h6l2 2h9v10h-17z'],
+  baixar: ['M12 4v11', 'M7 10.5l5 5 5-5', 'M4.5 19.5h15'],
+  lixo: ['M4.5 7h15', 'M9.5 7V4.5h5V7', 'M6.5 7l1 13h9l1-13'],
+  mais: ['M12 5v14', 'M5 12h14'],
+  nota: ['M5.5 4.5h13v15h-13z', 'M9 9h6', 'M9 12.5h6', 'M9 16h3.5'],
 };
 
 /** Icone de traco (SVG montado por createElementNS, sem HTML). */
@@ -163,9 +167,11 @@ function emBreve(container, ctx) {
 for (const p of ORDEM) registro.set(p.id, { ...p, render: emBreve, placeholder: true });
 
 /**
- * registrarPasso({id, titulo, render(container, ctx), pronto?(estado)}): troca o
- * conteudo "Em breve" de um passo pelo de verdade. `pronto(estado)` decide se o
- * passo esta concluido (padrao: estado.etapas[id] === 'pronto').
+ * registrarPasso({id, titulo, render(container, ctx), pronto?(estado), video?(estado, slug),
+ * tarefas?}): troca o conteudo "Em breve" de um passo pelo de verdade. `pronto(estado)`
+ * decide se o passo esta concluido (padrao: estado.etapas[id] === 'pronto');
+ * `video(estado, slug)` escolhe o que o player mostra nesta tela ({rel, rotulo, versao}
+ * ou null para o padrao); `tarefas` sao os trabalhos cujo fim repinta a tela.
  */
 export function registrarPasso(def) {
   if (!def || !def.id || typeof def.render !== 'function') throw new Error('passo inválido');
@@ -182,14 +188,23 @@ export function passoPronto(id, estado) {
   return !!(estado.etapas && estado.etapas[id] === 'pronto');
 }
 
-/** {id: bloqueado?}: um passo so abre quando os anteriores obrigatorios estao prontos. */
+/** Passo que bloqueia o seguinte enquanto nao esta pronto: nao e opcional nem "Em breve". */
+export function obrigatorio(id) {
+  const p = registro.get(id);
+  return !!p && !p.opcional && !p.placeholder;
+}
+
+/**
+ * {id: bloqueado?}: um passo so abre quando os anteriores obrigatorios estao prontos.
+ * Passo ainda "Em breve" nao tem como ficar pronto, entao nao segura os seguintes.
+ */
 export function bloqueios(estado) {
   const out = {};
   let livre = true;
   for (const p of ORDEM) {
     out[p.id] = !livre;
     if (!estado) livre = false;
-    else if (!passoPronto(p.id, estado) && !p.opcional) livre = false;
+    else if (!passoPronto(p.id, estado) && obrigatorio(p.id)) livre = false;
   }
   return out;
 }

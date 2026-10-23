@@ -131,11 +131,12 @@ def test_steps_locked_until_previous_ready(results):
     assert all(depois[p]["bloqueado"] for p in PASSOS[2:])
     cortes = {p["id"]: p for p in r["depoisCortes"]}
     assert cortes["cortes"]["estado"] == "pronto" and cortes["legendas"]["bloqueado"] is False
-    assert "Em breve" in r["textoCortes"]
+    assert "Reconhecer a fala do vídeo" in r["textoCortes"], "Cortes ja e a tela de verdade"
     assert "Vídeo recebido" in r["voltou"], "voltar ao passo nao perde o que foi feito"
     assert "Reel bloqueio" in r["aposRecarregar"], "reabre o ultimo projeto"
     assert r["storage"] == ["editor-reels:ultimo-projeto"], "localStorage so guarda o ultimo projeto"
-    assert r["busca"] == "", "a chave sai da barra de endereco depois de lida"
+    assert r["busca"].startswith("?t="), "a chave continua no endereco: F5 precisa funcionar"
+    assert r["fatalAposF5"] is False, "recarregar a pagina (F5) nao pode cair na tela de erro"
 
 
 def test_install_screen_lists_items_and_handle_form(results):

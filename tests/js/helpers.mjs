@@ -12,13 +12,16 @@ export const REPO = path.resolve(AQUI, '..', '..');
 // ESM ignora NODE_PATH; createRequire usa os caminhos globais (NODE_PATH) do node.
 export const require_ = createRequire(import.meta.url);
 
-/** Sobe um servidor. cfg: {root, brand, max_upload, doctor}. Devolve {base, url, token, root, parar}. */
-export async function iniciarServidor(cfg, dirTmp) {
+/**
+ * Sobe um servidor. cfg: {root, brand, max_upload, doctor, test_mode}; env: variaveis
+ * extras do processo do servidor (ex.: REEL_APP_FAKE_TRANSCRIBE). Devolve {base, url, token, root, parar}.
+ */
+export async function iniciarServidor(cfg, dirTmp, env = {}) {
   fs.mkdirSync(cfg.root, { recursive: true });
   const cfgPath = path.join(dirTmp, `srv-${process.hrtime.bigint()}.json`);
   fs.writeFileSync(cfgPath, JSON.stringify(cfg));
   const proc = spawn('python3', ['-I', path.join(AQUI, 'serve_for_test.py'), cfgPath],
-    { stdio: ['pipe', 'pipe', 'pipe'] });
+    { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...env } });
   let stderr = '';
   proc.stderr.on('data', (d) => { stderr += d; });
   const linha = await new Promise((resolve, reject) => {

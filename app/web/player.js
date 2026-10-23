@@ -66,13 +66,16 @@ export function criarPlayer() {
     video,
     alternar,
     temVideo,
-    /** Mostra um arquivo do projeto. forcar recarrega mesmo se for o mesmo endereco. */
-    definir(slug, rel, { forcar = false, rotulo = '' } = {}) {
-      const chave = `${slug}|${rel}`;
+    /**
+     * Mostra um arquivo do projeto. `versao` muda quando o arquivo foi gerado de novo
+     * (recarrega); forcar recarrega mesmo se for o mesmo endereco.
+     */
+    definir(slug, rel, { forcar = false, rotulo = '', versao = '' } = {}) {
+      const chave = `${slug}|${rel}|${versao}`;
       legenda.textContent = rotulo;
       if (chave === atual && !forcar) return;
       atual = chave;
-      video.src = urlArquivo(slug, rel, forcar ? String(Date.now()) : '');
+      video.src = urlArquivo(slug, rel, forcar ? String(Date.now()) : versao);
       video.load();
       pintar();
     },
@@ -84,6 +87,14 @@ export function criarPlayer() {
       video.load();
       pintar();
     },
+    /** Leva o video ao instante `t` (segundos do arquivo mostrado). */
+    irPara(t) {
+      if (!temVideo() || !Number.isFinite(t)) return;
+      try { video.currentTime = Math.max(0, t); } catch { /* ainda sem metadados */ }
+      pintar();
+    },
+    /** Instante atual do video mostrado (segundos). */
+    agora() { return temVideo() ? Number(video.currentTime) || 0 : 0; },
     /** Promise com {duracao, largura, altura} do video carregado (ou null). */
     metadados() {
       const m = metadados();

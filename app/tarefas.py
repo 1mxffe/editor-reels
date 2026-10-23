@@ -16,6 +16,7 @@ from projects import EXT_VIDEO
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
 BRAND = REPO / "brand" / "brand.json"
+FALSO = REPO / "tests" / "fixtures_app.py"  # transcricao fixa: so em modo de teste
 
 TIPOS = ("transcrever", "cortes", "preview", "final",
          "capa-candidatos", "capa", "instalar-chromium")
@@ -121,9 +122,14 @@ def _entrada(project: Path) -> Path:
     raise ValueError("envie o vídeo antes de continuar")
 
 
-def argv(tipo: str, project: Path, **opcoes) -> list[str]:
+def argv(tipo: str, project: Path, *, falso: bool = False, **opcoes) -> list[str]:
+    """argv da tarefa. ``falso=True`` (so o servidor em modo de teste decide isso, ver
+    ``server.transcricao_falsa``) troca o Whisper pela transcricao fixa dos testes."""
     opts = validar(tipo, opcoes)
     project = Path(project)
+    if tipo == "transcrever" and falso:
+        return [sys.executable, "-I", str(FALSO), "transcrever",
+                str(_entrada(project)), str(project / "transcricao.json")]
     if tipo == "transcrever":
         cmd = _py("transcribe.py")
         if "model" in opts:

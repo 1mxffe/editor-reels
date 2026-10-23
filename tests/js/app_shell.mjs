@@ -167,13 +167,14 @@ await cenario('locked', async () => {
   await page.click('#passos .passo[data-passo="video"]');
   await page.waitForSelector('#painel[data-passo="video"] #video-info');
   const voltou = (await page.textContent('#video-info')).trim();
-  // a chave sai da barra de endereco; reabrir e pelo icone (endereco com ?t=)
+  // a chave fica na barra de endereco: F5 continua funcionando
   const busca = await page.evaluate(() => window.location.search);
-  await page.goto(srvA.url);
+  await page.reload();
   await page.waitForSelector('#painel[data-passo]');
   await esperar(async () => (await page.textContent('#projeto-atual')).includes('Reel bloqueio'));
+  const fatalAposF5 = await page.$eval('#fatal', (f) => !f.hidden);
   const r = {
-    antes, painelAposBloqueado, toast, busca, depoisVideo, depoisCortes, textoCortes, voltou,
+    antes, painelAposBloqueado, toast, busca, fatalAposF5, depoisVideo, depoisCortes, textoCortes, voltou,
     aposRecarregar: (await page.textContent('#projeto-atual')).trim(),
     storage: await page.evaluate(() => Object.keys(localStorage)),
     erros: page.__erros,
