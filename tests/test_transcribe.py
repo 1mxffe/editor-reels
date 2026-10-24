@@ -160,3 +160,128 @@ def test_error_building_model_fails_cleanly(make_sample, tmp_path, monkeypatch, 
     assert exc.value.code != 0
     assert "falha na transcrição: modelo inexistente" in capsys.readouterr().err
     assert not out.exists()
+
+
+# --- audio extraido pelo ffmpeg (evita av.open do faster-whisper) ---
+
+def _capturing_model(box):
+    class Model:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, audio, **kw):
+            box["audio"] = audio
+            return iter([]), None
+
+    return Model
+
+
+def test_model_receives_float32_mono_array_not_path(make_sample, tmp_path, monkeypatch):
+    import numpy as np
+    box = {}
+    monkeypatch.setitem(sys.modules, "faster_whisper", _module_with(_capturing_model(box)))
+    transcribe.transcribe(make_sample, tmp_path / "t.json")
+    a = box["audio"]
+    assert isinstance(a, np.ndarray) and not isinstance(a, (str, Path))
+    assert a.dtype == np.float32 and a.ndim == 1
+    assert float(np.abs(a).max()) <= 1.0 and float(np.abs(a).max()) > 0.01
+
+
+def test_roundtrip_length_matches_duration(make_sample, tmp_path, monkeypatch):
+    box = {}
+    monkeypatch.setitem(sys.modules, "faster_whisper", _module_with(_capturing_model(box)))
+    res = transcribe.transcribe(make_sample, tmp_path / "t.json")
+    assert abs(len(box["audio"]) - res["duration"] * 16000) < 0.15 * 16000
+    assert abs(len(box["audio"]) / 16000 - 6.0) < 0.3
+
+
+def test_poisoned_av_open_is_never_called(make_sample, tmp_path, monkeypatch):
+    audio = pytest.importorskip("faster_whisper.audio")
+    if not hasattr(audio, "av"):
+        pytest.skip("faster_whisper.audio sem av")
+
+    def poisoned(*a, **k):
+        raise TypeError("open() got an unexpected keyword argument 'metadata_errors'")
+
+    monkeypatch.setattr(audio.av, "open", poisoned)
+    box = {}
+    monkeypatch.setitem(sys.modules, "faster_whisper", _module_with(_capturing_model(box)))
+    transcribe.transcribe(make_sample, tmp_path / "t.json")
+    assert "audio" in box
+
+
+def test_no_audio_message_mentions_sem_som(no_audio_video, tmp_path, capsys):
+    with pytest.raises(SystemExit):
+        transcribe.transcribe(no_audio_video, tmp_path / "t.json")
+    assert "áudio" in capsys.readouterr().err
+
+
+def test_ffmpeg_missing_fails_clearly(make_sample, tmp_path, monkeypatch, capsys):
+    import shutil
+    monkeypatch.setitem(sys.modules, "faster_whisper", _module_with(_capturing_model({})))
+    monkeypatch.setattr(shutil, "which", lambda *a, **k: None)
+    monkeypatch.setenv("PATH", "")
+    out = tmp_path / "t.json"
+    with pytest.raises(SystemExit) as exc:
+        transcribe.transcribe(make_sample, out)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("erro: ") and "ffmpeg" in err and "Traceback" not in err
+    assert not out.exists()
+
+
+def test_temp_dir_removed(make_sample, tmp_path, monkeypatch):
+    import tempfile
+    seen = []
+    real = tempfile.TemporaryDirectory
+
+    class Spy(real):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            seen.append(Path(self.name))
+
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", Spy)
+    monkeypatch.setitem(sys.modules, "faster_whisper", _module_with(_capturing_model({})))
+    transcribe.transcribe(make_sample, tmp_path / "t.json")
+    assert seen and all(not p.exists() for p in seen)
+
+
+def test_temp_dir_removed_on_model_error(make_sample, tmp_path, monkeypatch):
+    import tempfile
+    seen = []
+    real = tempfile.TemporaryDirectory
+
+    class Spy(real):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            seen.append(Path(self.name))
+
+    class Model:
+        def __init__(self, *a, **k):
+            raise ValueError("x")
+
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", Spy)
+    monkeypatch.setitem(sys.modules, "faster_whisper", _module_with(Model))
+    with pytest.raises(SystemExit):
+        transcribe.transcribe(make_sample, tmp_path / "t.json")
+    assert all(not p.exists() for p in seen)
+
+
+def test_empty_wav_fails_clearly(make_sample, tmp_path, monkeypatch, capsys):
+    import wave
+
+    def fake_run(cmd, **kw):
+        with wave.open(cmd[-1], "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: fake_run(cmd, **kw)
+                        if cmd[0] == "ffmpeg" else subprocess.CompletedProcess(
+                            cmd, 0, "0\n" if "stream=index" in cmd else "6.0\n", ""))
+    monkeypatch.setitem(sys.modules, "faster_whisper", _module_with(_capturing_model({})))
+    with pytest.raises(SystemExit):
+        transcribe.transcribe(make_sample, tmp_path / "t.json")
+    err = capsys.readouterr().err
+    assert err.startswith("erro: falha na transcrição:") and "som" in err
