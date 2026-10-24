@@ -298,6 +298,11 @@ def test_font_is_the_brand_file():
     fonte = WEB / "fonts" / "Poppins-Bold.ttf"
     assert fonte.read_bytes() == (REPO / "assets" / "fonts" / "Poppins-Bold.ttf").read_bytes()
     # so copias exatas das fontes da marca (assets/fonts), nada de fora
+    nomes = sorted(p.name for p in (WEB / "fonts").iterdir())
+    assert nomes == sorted(f"Poppins-{n}.ttf" for n in ("Regular", "Medium", "SemiBold", "Bold", "ExtraBold"))
+    css = (WEB / "app.css").read_text("utf-8")
+    for peso, n in ((400, "Regular"), (500, "Medium"), (600, "SemiBold"), (700, "Bold"), (800, "ExtraBold")):
+        assert f'url("/static/fonts/Poppins-{n}.ttf")' in css and f"font-weight: {peso};" in css, n
     for p in (WEB / "fonts").iterdir():
         assert p.name.startswith("Poppins-") and p.suffix == ".ttf", p.name
         assert p.read_bytes() == (REPO / "assets" / "fonts" / p.name).read_bytes(), p.name

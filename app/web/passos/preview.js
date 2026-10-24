@@ -76,7 +76,7 @@ function secaoNotas(ctx) {
 
 registrarPasso({
   id: 'preview',
-  pronto: (estado) => estado.etapas.preview === 'pronto' && !estado.preview_desatualizado,
+  pronto: (estado) => estado.etapas.preview === 'pronto' && (!estado.preview_desatualizado || estado.preview_so_graficos === true),
   tarefas: ['preview'],
   video: (estado, slug) => (estado.arquivos.preview
     ? { rel: estado.arquivos.preview, rotulo: 'Preview', versao: versaoDe(slug, 'preview') } : null),
@@ -114,7 +114,7 @@ registrarPasso({
     container.append(...[
       el('p', { class: 'lead' }, 'Veja como o Reel está ficando antes de gerar o arquivo final.'),
       velho ? el('p', { id: 'aviso-desatualizado', class: 'mensagem-aviso', role: 'status' },
-        'Você mudou os cortes/legendas depois de gerar este vídeo. Ele não tem as mudanças: gere de novo.') : null,
+        'Você mudou os cortes, as legendas ou os cards depois de gerar este vídeo. Ele não tem as mudanças: gere de novo.') : null,
       quadro, erro, acoes, tem ? secaoNotas(ctx) : null].filter(Boolean));
   },
 });

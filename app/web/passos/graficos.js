@@ -340,6 +340,7 @@ registrarPasso({
       aoMudarMateriais() { this.pintarCards(); },
       async gravar(cards) {
         const r = await api('PUT', rota(slug, 'graficos'), { cards });
+        if (ctx.slugAtual() !== slug) return; // resposta de um Reel que ja nao esta aberto
         this.cards = r.cards;
         this.decisoes = r.decisoes || {};
         this.pintarCards();

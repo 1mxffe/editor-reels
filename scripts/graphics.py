@@ -270,7 +270,8 @@ def _check_size(size) -> tuple[int, int]:
 
 def _font_files() -> list[dict]:
     out = []
-    for weight, name in ((400, "Regular"), (600, "SemiBold"), (700, "Bold"), (800, "ExtraBold")):
+    for weight, name in ((400, "Regular"), (500, "Medium"), (600, "SemiBold"), (700, "Bold"),
+                         (800, "ExtraBold")):
         for ext in (".ttf", ".otf"):
             f = FONTS_DIR / f"Poppins-{name}{ext}"
             if f.is_file():

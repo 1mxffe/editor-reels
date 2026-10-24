@@ -3,16 +3,32 @@
 // gancho/área/subtítulo e gera capa/capa.png (1080 x 1920) com a marca do escritório.
 import { api, el, icone, registrarPasso, urlArquivo } from '../nucleo.js';
 import { traduzir } from '../mensagens.js';
-import { iniciarTarefa, quadroTarefa, rodando, versaoDe } from '../tarefa.js';
+import { iniciarTarefa, quadroTarefa, rodando, tarefaDe, versaoDe } from '../tarefa.js';
 
 const GANCHO_MAX = 28;
 const AREA_MAX = 28;
 const SUB_MAX = 90;
-const escolhas = new Map(); // slug -> {quadro, gancho, area, subtitulo}: sobrevive à troca de passo
+const escolhas = new Map(); // slug -> {quadro, gancho, area, subtitulo, limpar}
+const CHAVE = (slug) => `editor-reels:capa:${slug}`;
 
+// guardado por aba (sessionStorage): sobrevive a recarregar a pagina
 function memoria(slug) {
-  if (!escolhas.has(slug)) escolhas.set(slug, { quadro: null, gancho: '', area: '', subtitulo: '' });
+  if (!escolhas.has(slug)) {
+    let salvo = {};
+    try { salvo = JSON.parse(sessionStorage.getItem(CHAVE(slug)) || '{}') || {}; } catch { salvo = {}; }
+    const texto = (v) => (typeof v === 'string' ? v : '');
+    escolhas.set(slug, { quadro: typeof salvo.quadro === 'string' ? salvo.quadro : null,
+      gancho: texto(salvo.gancho), area: texto(salvo.area), subtitulo: texto(salvo.subtitulo), limpar: false });
+  }
   return escolhas.get(slug);
+}
+
+function guardar(slug) {
+  const m = memoria(slug);
+  try {
+    sessionStorage.setItem(CHAVE(slug), JSON.stringify(
+      { quadro: m.quadro, gancho: m.gancho, area: m.area, subtitulo: m.subtitulo }));
+  } catch { /* navegador sem armazenamento: so nao lembra */ }
 }
 
 function nomeQuadro(rel) {
@@ -40,7 +56,14 @@ registrarPasso({
     const estado = ctx.estado;
     const mem = memoria(slug);
     const candidatos = Array.isArray(estado.capa_candidatos) ? estado.capa_candidatos : [];
+    // "Achar quadros de novo" terminou: os quadros sao outros, a escolha antiga nao vale
+    const ultimo = tarefaDe(slug);
+    if (mem.limpar && ultimo && ultimo.tipo === 'capa-candidatos' && ultimo.estado !== 'rodando') {
+      mem.limpar = false;
+      if (ultimo.estado === 'ok') mem.quadro = null;
+    }
     if (mem.quadro && !candidatos.includes(mem.quadro)) mem.quadro = null;
+    guardar(slug);
     const semArroba = !(ctx.brand && ctx.brand.completa);
     const temVideo = estado.etapas.video === 'pronto';
     const versaoQuadros = versaoDe(slug, 'capa-candidatos');
@@ -60,6 +83,7 @@ registrarPasso({
       erroQuadros.hidden = true;
       try {
         await iniciarTarefa(slug, 'capa-candidatos', { modo: 'video' });
+        mem.limpar = true;
       } catch (e) {
         erroQuadros.textContent = traduzir(e.mensagem);
         erroQuadros.hidden = false;
@@ -88,6 +112,7 @@ registrarPasso({
       try {
         await iniciarTarefa(slug, 'capa-candidatos', { modo: 'foto', foto: fotos.value });
         mem.quadro = 'capa/foto.png';
+        guardar(slug);
       } catch (e) {
         erroQuadros.textContent = traduzir(e.mensagem);
         erroQuadros.hidden = false;
@@ -106,7 +131,7 @@ registrarPasso({
           el('button', {
             type: 'button', class: `botao ${sel ? 'botao-primario' : 'botao-secundario'} candidato-escolher`,
             'aria-pressed': String(sel), 'aria-label': `Escolher este quadro: ${nome}`,
-            onclick: () => { mem.quadro = rel; pintarGrade(); pintarGerar(); },
+            onclick: () => { mem.quadro = rel; guardar(slug); pintarGrade(); pintarGerar(); },
           }, sel ? icone('ok') : null, el('span', {}, sel ? 'Escolhido' : 'Escolher este quadro')));
       }));
     }
@@ -128,7 +153,7 @@ registrarPasso({
     const subtitulo = el('textarea', { id: 'capa-subtitulo', rows: '2', maxlength: String(SUB_MAX), placeholder: 'Ex.: sobre a aposentadoria' });
     subtitulo.value = mem.subtitulo;
     for (const [campo, chave] of [[gancho, 'gancho'], [area, 'area'], [subtitulo, 'subtitulo']]) {
-      campo.addEventListener('input', () => { mem[chave] = campo.value; pintarGerar(); });
+      campo.addEventListener('input', () => { mem[chave] = campo.value; guardar(slug); pintarGerar(); });
     }
     const campo = (rotulo, id, controle, ajuda) => el('div', { class: 'campo' },
       el('label', { for: id }, rotulo), controle, ajuda);

@@ -736,3 +736,15 @@ def test_set_handles_cli(tmp_path):
                        capture_output=True, text=True, timeout=30)
     assert r.returncode == 0, r.stderr
     assert json.loads(p.read_text("utf-8"))["handles"] == ["@gs"]
+
+
+def test_cover_embeds_extrabold_and_semibold_fonts():
+    """Gancho em ExtraBold (800) e subtítulo em SemiBold (600): os TTF da marca vão
+    embutidos como data: URI, cada um no seu peso."""
+    import base64 as _b64
+    import cover_compose as _cc
+    fontes = {f["weight"]: f["url"] for f in _cc._fonts()}
+    pasta = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+    for peso, nome in ((800, "ExtraBold"), (600, "SemiBold"), (500, "Medium"), (400, "Regular")):
+        assert fontes[peso].startswith("data:font/ttf;base64,"), peso
+        assert _b64.b64decode(fontes[peso].split(",", 1)[1]) == (pasta / f"Poppins-{nome}.ttf").read_bytes()

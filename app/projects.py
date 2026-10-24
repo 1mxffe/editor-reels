@@ -33,15 +33,23 @@ def _eh_entrada(nome: str) -> bool:
     return nome.startswith("entrada.") and nome[len("entrada"):] in EXT_VIDEO
 
 
-def impressao(d: Path) -> str:
+def impressao(d: Path, com_graficos: bool = True) -> str:
     """Impressao digital do que entra no video: cortes ativos + edicoes de legenda.
-    Funcao pura dos arquivos; notas e graficos nao contam. ``review_apply`` regrava os
+    Funcao pura dos arquivos; cards (graficos.json) e Manter/Fora dos cards contam,
+    notas nao. ``review_apply`` regrava os
     arquivos a cada PUT (ate so de nota), por isso compara o conteudo canonico, nunca mtime."""
     cortes = _ler_json(Path(d) / "cortes.json")
     legendas = _ler_json(Path(d) / "legendas.json")
+    graficos = _ler_json(Path(d) / "graficos.json")
+    revisao = _ler_json(Path(d) / "revisao.json")
     cuts = cortes.get("cuts", []) if isinstance(cortes, dict) else []
     edits = legendas.get("edits", []) if isinstance(legendas, dict) else []
-    bruto = json.dumps({"cuts": cuts, "edits": edits}, sort_keys=True, ensure_ascii=False)
+    cards = graficos.get("cards", []) if isinstance(graficos, dict) else []
+    decisoes = revisao.get("graphics", {}) if isinstance(revisao, dict) else {}
+    dados = {"cuts": cuts, "edits": edits}
+    if com_graficos and (cards or decisoes):  # sem cards a impressao fica igual a de antes (projetos antigos)
+        dados.update(cards=cards, graphics=decisoes)
+    bruto = json.dumps(dados, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(bruto.encode("utf-8")).hexdigest()
 
 
@@ -52,7 +60,15 @@ def arquivo_origem(d: Path, tipo: str) -> Path:
 def registrar_origem(d: Path, tipo: str) -> None:
     """Chamado ao comecar preview/final: guarda a impressao usada nesta geracao."""
     (Path(d) / "saida").mkdir(exist_ok=True)
-    common.write_json_atomic(arquivo_origem(d, tipo), {"impressao": impressao(d)})
+    common.write_json_atomic(arquivo_origem(d, tipo), {"impressao": impressao(d),
+                                                        "impressao_base": impressao(d, com_graficos=False)})
+
+
+def so_graficos(d: Path, tipo: str) -> bool:
+    """A saida esta velha so por causa dos cards (cortes/legendas iguais aos da geracao)."""
+    dados = _ler_json(arquivo_origem(d, tipo))
+    return (isinstance(dados, dict) and isinstance(dados.get("impressao_base"), str)
+            and dados["impressao_base"] == impressao(d, com_graficos=False))
 
 
 def _desatualizado(d: Path, tipo: str, rel: str, atual: str) -> bool:
@@ -193,7 +209,8 @@ class Projects:
         legendas_ok = isinstance(etapas_json, dict) and etapas_json.get("legendas") is True
         atual = impressao(d)
         base = etapas_json.get("legendas_base") if isinstance(etapas_json, dict) else None
-        legendas_velhas = legendas_ok and isinstance(base, str) and base != atual
+        # legendas so dependem de cortes/legendas: mexer nos cards nao pede reconfirmar
+        legendas_velhas = legendas_ok and isinstance(base, str) and base != impressao(d, com_graficos=False)
         duracao = None
         trans = _ler_json(d / "transcricao.json")
         if isinstance(trans, dict):
@@ -241,6 +258,9 @@ class Projects:
                 "legendas_desatualizado": legendas_velhas,
                 "preview_desatualizado": _desatualizado(d, "preview", "saida/preview.mp4", atual),
                 "final_desatualizado": _desatualizado(d, "final", "saida/final.mp4", atual),
+                # velho so pelos cards: avisa, mas nao tranca os passos seguintes
+                "preview_so_graficos": _desatualizado(d, "preview", "saida/preview.mp4", atual)
+                and so_graficos(d, "preview"),
                 # quadros para a capa (capa-candidatos), na ordem do video, e a foto enviada
                 "capa_candidatos": candidatos,
                 "arquivos": arquivos}

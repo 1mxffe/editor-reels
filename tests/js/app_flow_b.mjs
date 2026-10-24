@@ -231,6 +231,18 @@ await cenario('capa', async () => {
   await pg.click('#capa-gerar');
   await pg.waitForSelector('#tarefa[data-estado="erro"]', { timeout: 60000 });
   r.erroGancho = (await pg.textContent('#tarefa .tarefa-sub')).trim();
+  // recarregar a pagina mantem os textos (sessionStorage); achar de novo limpa a escolha
+  await pg.reload();
+  await pg.waitForSelector('#painel[data-passo]');
+  await irPasso(pg, 'capa');
+  await pg.waitForSelector('#capa-gancho');
+  r.ganchoDepoisF5 = await pg.inputValue('#capa-gancho');
+  r.escolhidoDepoisF5 = await pg.getAttribute('#capa-candidatos .candidato[data-escolhido="true"]', 'data-rel');
+  await pg.click('#capa-achar');
+  await pg.waitForSelector('#tarefa[data-estado="rodando"]', { timeout: 10000 }).catch(() => {});
+  await ocioso(pg);
+  await pg.waitForSelector('#capa-candidatos .candidato >> nth=2');
+  r.escolhidosDepoisAchar = (await pg.$$('#capa-candidatos .candidato[data-escolhido="true"]')).length;
   r.erros = pg.__erros;
   await ctx.close();
   return r;

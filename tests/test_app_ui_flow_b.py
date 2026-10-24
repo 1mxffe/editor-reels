@@ -147,6 +147,8 @@ def test_cover_flow_select_frame_and_generate(results):
     # erro do script chega por extenso, traduzido
     assert "até 28 letras" in r["erroGancho"] and "39" in r["erroGancho"], r["erroGancho"]
     assert r["finalBloqueado"] is False
+    assert r["ganchoDepoisF5"].startswith("GANCHO") and r["escolhidoDepoisF5"] == "capa/foto.png"
+    assert r["escolhidosDepoisAchar"] == 0, "quadros novos: escolha antiga apagada"
 
 
 def test_cover_no_smile_detection_notice(results):

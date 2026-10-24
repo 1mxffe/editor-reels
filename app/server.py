@@ -638,7 +638,7 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError):
                 pass
             atual["legendas"] = corpo["confirmado"]
-            atual["legendas_base"] = projects_mod.impressao(d)
+            atual["legendas_base"] = projects_mod.impressao(d, com_graficos=False)
             try:
                 common.write_json_atomic(d / "etapas.json", atual)
             except OSError:
@@ -912,8 +912,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(400, 'envie {"cards": [...]}')
         for i, card in enumerate(corpo["cards"]):
             mat = card.get("material") if isinstance(card, dict) else None
-            if mat not in (None, "") and not (isinstance(mat, str) and mat.startswith("materiais/")
-                                              and ".." not in mat and "\\" not in mat):
+            partes = mat.split("/") if isinstance(mat, str) else []
+            if mat not in (None, "") and not (len(partes) == 2 and partes[0] == "materiais"
+                                              and partes[1] and not partes[1].startswith(".")
+                                              and "\x00" not in mat and "\\" not in mat):
                 return self.error(400, f"card {i}: a imagem precisa ser um dos materiais")
         trava = revisao_api.trava(slug)
         if not trava.acquire(timeout=revisao_api.ESPERA_TRAVA):

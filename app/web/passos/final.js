@@ -78,7 +78,7 @@ registrarPasso({
     container.append(...[
       el('p', { class: 'lead' }, 'Último passo: o Reel no tamanho certo, pronto para publicar.'),
       velho ? el('p', { id: 'aviso-desatualizado', class: 'mensagem-aviso', role: 'status' },
-        'Você mudou os cortes/legendas depois de gerar este vídeo. Ele não tem as mudanças: gere de novo.') : null,
+        'Você mudou os cortes, as legendas ou os cards depois de gerar este vídeo. Ele não tem as mudanças: gere de novo.') : null,
       quadro, erro, acoes, temArquivos ? listaArquivos(ctx) : null].filter(Boolean));
   },
 });

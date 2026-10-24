@@ -157,6 +157,10 @@ def test_graficos_put_validates_each_card(root):
             ([_card(0, material="materiais/sumiu.png")], "material"),
             ([_card(0, material="capa/capa.png")], "materiais"),
             ([_card(0, material="/etc/passwd")], "materiais"),
+            ([_card(0, material="materiais//foto.png")], "materiais"),
+            ([_card(0, material="materiais/./foto.png")], "materiais"),
+            ([_card(0, material="materiais/foto.png\x00")], "materiais"),
+            ([_card(0, material="materiais/sub/foto.png")], "materiais"),
             ([_card(0, extra=1)], "desconhecidas"),
         ]
         for cards, trecho in casos:
@@ -260,3 +264,42 @@ def test_capa_needs_handle_message(root, tmp_path):
         # os candidatos nao dependem do @
         r = c.request("POST", f"/api/projects/{slug}/jobs/capa-candidatos", body={"modo": "video"})
         assert r.status != 409
+
+
+def test_cards_and_keep_drop_mark_outputs_stale_but_notes_do_not(root):
+    import projects as projects_mod
+    from fixtures_app import montar_projeto
+    s = make_server(root, TOKEN, test_mode=True)
+    with client(s) as c:
+        slug = _projeto(c, "Impressao")
+        d = root / slug
+        montar_projeto(d)
+        assert c.request("PUT", f"/api/projects/{slug}/etapas/legendas", body={"confirmado": True}).status == 200
+
+        def gerar():
+            projects_mod.registrar_origem(d, "preview")
+            time.sleep(0.02)
+            (d / "saida" / "preview.mp4").write_bytes(b"x")
+
+        def estado():
+            return c.get(f"/api/projects/{slug}").json()
+
+        gerar()
+        assert estado()["preview_desatualizado"] is False
+        rota = f"/api/projects/{slug}/graficos"
+        assert c.request("PUT", rota, body={"cards": [_card(0)]}).status == 200
+        st = estado()
+        assert st["preview_desatualizado"] is True
+        assert st["legendas_desatualizado"] is False, "cards nao pedem reconfirmar legendas"
+        assert st["preview_so_graficos"] is True, "velho so pelos cards: nao tranca os passos"
+        gerar()
+        assert estado()["preview_desatualizado"] is False
+        r = c.request("PUT", f"/api/projects/{slug}/revisao", body={"graphics": {"g0": "drop"}})
+        assert r.status == 200, r.body
+        assert estado()["preview_desatualizado"] is True
+        gerar()
+        r = c.request("PUT", f"/api/projects/{slug}/revisao", body={"notes": [{"t": 1.0, "text": "ok"}]})
+        assert r.status == 200
+        assert estado()["preview_desatualizado"] is False, "notas nao invalidam"
+        assert c.request("PUT", rota, body={"cards": [_card(0, title="Outro")]}).status == 200
+        assert estado()["preview_desatualizado"] is True
