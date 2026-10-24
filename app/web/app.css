@@ -730,3 +730,4 @@ select:focus-visible { outline-offset: 0; border-color: var(--foco); }
   .card-acoes { width: 100%; justify-content: flex-end; }
   .materiais { grid-template-columns: minmax(0, 1fr); }
 }
+.cards, .materiais, .candidatos { padding: 0; margin: 0; }

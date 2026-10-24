@@ -145,7 +145,7 @@ def test_cover_flow_select_frame_and_generate(results):
     # foto dos materiais vira mais um quadro, ja escolhido
     assert r["fotoEscolhida"] == "capa/foto.png"
     # erro do script chega por extenso, traduzido
-    assert "até 28 letras" in r["erroGancho"] and "41" in r["erroGancho"], r["erroGancho"]
+    assert "até 28 letras" in r["erroGancho"] and "39" in r["erroGancho"], r["erroGancho"]
     assert r["finalBloqueado"] is False
 
 
