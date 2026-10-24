@@ -26,6 +26,7 @@ from server import make_server
 REPO = Path(__file__).resolve().parent.parent
 DRIVER = REPO / "tests" / "js" / "app_flow_a.mjs"
 SCREENS = REPO / ".superpowers" / "sdd" / "2026-10-23-interface-web" / "screens-t7"
+SCREENS_SEL = REPO / ".superpowers" / "sdd" / "2026-10-23-interface-web" / "screens-select"
 NOVOS = ["cortes", "legendas", "preview", "final"]
 
 
@@ -49,7 +50,7 @@ def results(tmp_path_factory):
                     "-i", "testsrc2=size=360x640:rate=30:duration=6",
                     "-c:v", "libvpx-vp9", "-b:v", "300k", "-an", str(video)],
                    check=True, capture_output=True)
-    cfg = {"tmp": str(tmp), "video": str(video), "screens": str(SCREENS),
+    cfg = {"tmp": str(tmp), "video": str(video), "screens": str(SCREENS), "screens_select": str(SCREENS_SEL),
            "review_html": str(REPO / "review" / "review.html"),
            "tempo_js": str(REPO / "app" / "web" / "tempo.js")}
     (tmp / "cfg.json").write_text(json.dumps(cfg), "utf-8")
@@ -191,6 +192,98 @@ def test_reload_keeps_running_job(results):
     assert r["cancelarDepoisF5"] == 1
     assert r["mesmoJob"] is True
     assert r["cortesNoFim"] >= 1, "acompanhamento retomado e cortes encadeados"
+
+
+# ------------------------------------------------- selecionar varias palavras
+def test_select_hint_and_idle_bar_hidden(results):
+    r = _ok(results, "selecao")
+    assert ("Dica: arraste sobre várias palavras ou segure Shift e clique para marcar um trecho."
+            in r["dica"])
+    assert r["barraInicio"] is False
+    assert r["ariaLive"] == "polite"
+
+
+def test_drag_selects_range_and_one_put_with_one_interval(results):
+    r = _ok(results, "selecao")["arrasto"]
+    assert r["marcadas"] == [2, 3, 4, 5, 6]
+    assert r["putsAposArrastar"] == 0, "so selecionar nao grava nada"
+    assert r["barra"] is True
+    assert "5 palavras selecionadas" in r["info"] and "s" in r["info"]
+    assert re.search(r"\d,\d s", r["info"]), r["info"]
+    assert r["botoes"][0] == "Cortar 5 palavras" and "Limpar seleção" in r["botoes"]
+    assert not any(b.startswith("Restaurar") for b in r["botoes"])
+    assert r["destaque"] != r["normal"], "palavra selecionada precisa de destaque visivel"
+    assert len(r["puts"]) == 1, "uma unica requisicao"
+    add = r["puts"][0]["cuts_added"]
+    assert len(add) == 1 and "cuts_removed" not in r["puts"][0]
+    a, b = r["palavras"]
+    assert add[0]["start"] == pytest.approx(a["start"]) and add[0]["end"] == pytest.approx(b["end"])
+    assert r["estados"] == ["mantida"] + ["cortada"] * 5 + ["mantida"]
+    manuais = [c for c in r["cortes"] if c["kind"] == "manual"]
+    assert len(manuais) == 1, manuais
+    assert r["depoisMarcadas"] == [] and r["depoisBarra"] is False
+
+
+def test_restore_selection_reverse_drag(results):
+    r = _ok(results, "selecao")["restaurar"]
+    assert r["botoes"][0] == "Restaurar 5 palavras"
+    assert not any(b.startswith("Cortar") for b in r["botoes"])
+    assert len(r["puts"]) == 1 and len(r["puts"][0]["cuts_removed"]) == 1
+    assert r["estados"] == ["mantida"] * 5
+    assert r["ativos"] == 0
+
+
+def test_shift_click_extends_and_escape_clears(results):
+    r = _ok(results, "selecao")
+    assert r["shift"]["marcadas"] == [1, 2, 3, 4]
+    assert "4 palavras selecionadas" in r["shift"]["info"]
+    assert r["esc"] == {"barra": False, "putsNovos": 0}
+
+
+def test_ctrl_click_picks_separate_words_one_request(results):
+    r = _ok(results, "selecao")["avulsas"]
+    assert r["marcadas"] == [8, 10]
+    assert r["botoes"][0] == "Cortar 2 palavras"
+    assert len(r["puts"]) == 1 and len(r["puts"][0]["cuts_added"]) == 2
+    assert r["estados"] == ["cortada", "mantida", "cortada"]
+
+
+def test_mixed_selection_offers_both_actions(results):
+    r = _ok(results, "selecao")["mista"]
+    assert "Cortar 1 palavra" in r["botoes"] and "Restaurar 1 palavra" in r["botoes"]
+    assert len(r["puts"]) == 1 and "cuts_added" not in r["puts"][0]
+    assert r["estados"] == ["mantida", "mantida", "cortada"]
+
+
+def test_double_click_selects_whole_sentence_without_saving(results):
+    r = _ok(results, "selecao")["frase"]
+    assert r["marcadas"] == [5, 6, 7, 8, 9]
+    assert r["putsNovos"] == 0 and r["estado7"] == "mantida"
+
+
+def test_keyboard_selection_and_clamped_last_word(results):
+    r = _ok(results, "selecao")["teclado"]
+    assert r["foco"] == 12
+    assert r["marcadas"] == [12, 13, 14]
+    assert "3 palavras selecionadas" in r["info"]
+    assert r["botoes"][0] == "Cortar 3 palavras"
+    assert len(r["puts"]) == 1 and len(r["puts"][0]["cuts_added"]) == 1
+    assert r["erro"] == ""
+    assert r["estados"] == ["cortada"] * 3
+    assert r["corte"]["end"] <= 6.0 and r["corte"]["start"] < r["corte"]["end"]
+    assert r["puts"][0]["cuts_added"][0]["end"] == 6.0
+    assert r["focoDepois"] != "", "o foco volta para uma palavra depois de gravar"
+
+
+def test_selection_reload_keeps_cuts_and_fits_375(results):
+    r = _ok(results, "selecao")
+    assert r["recarregar"]["estados"] == ["cortada"] * 3 and r["recarregar"]["marcadas"] == []
+    e = r["estreito"]
+    assert not e["erros"], e["erros"]
+    assert e["marcadas"] == 6
+    assert e["medidas"]["scrollWidth"] <= e["medidas"]["clientWidth"], e["medidas"]
+    assert e["barraNaTela"] is True
+    assert e["botoes"] and all(b["h"] >= 44 and b["dentro"] for b in e["botoes"]), e["botoes"]
 
 
 # ---------------------------------------------------------- texto e layout

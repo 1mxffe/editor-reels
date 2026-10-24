@@ -531,6 +531,32 @@ progress::-moz-progress-bar { background: var(--destaque); }
   text-decoration: line-through;
 }
 .palavra:disabled, .pausa:disabled { cursor: progress; }
+
+/* selecao de varias palavras */
+.palavras { user-select: none; -webkit-user-select: none; touch-action: pan-y; }
+.palavras[data-modo="1"] { touch-action: none; }
+.palavra { -webkit-touch-callout: none; }
+.palavra[data-sel="1"], .palavra[data-sel="1"]:hover:not(:disabled) {
+  background: var(--acento); color: var(--marinho); border-color: var(--destaque);
+  box-shadow: 0 0 0 2px var(--destaque);
+}
+.palavra[data-sel="1"][data-estado="cortada"] { text-decoration-color: var(--erro-texto); }
+.palavra:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; position: relative; z-index: 1; }
+.palavras-ferramentas { display: flex; margin: 0 0 10px; }
+.palavras-ferramentas .botao[aria-pressed="true"] { background: var(--acento); color: var(--marinho); border-color: var(--destaque); }
+.barra-selecao {
+  position: sticky; bottom: 12px; z-index: 20; margin-top: 16px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  padding: 12px 14px; border-radius: var(--raio);
+  background: var(--superficie); border: 2px solid var(--destaque);
+  box-shadow: 0 8px 24px rgba(0, 25, 49, .22);
+}
+.barra-selecao[hidden] { display: none; }
+.sel-info { margin: 0; flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+.sel-info strong { display: block; }
+.sel-trecho { color: var(--texto-suave); font-size: .875rem; font-variant-numeric: tabular-nums; }
+.sel-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.sel-acoes .botao[hidden] { display: none; }
 [data-ocupado] .palavras, [data-ocupado] .cortes { opacity: .7; }
 
 .cortes, .frases, .notas, .arquivos {
@@ -660,6 +686,8 @@ textarea:focus-visible { outline-offset: 0; border-color: var(--foco); }
 }
 
 @media (max-width: 599px) {
+  .sel-acoes { width: 100%; }
+  .sel-acoes .botao { flex: 1 1 auto; justify-content: center; }
   .marca-texto span { display: none; }
   .projeto-atual {
     order: 3; flex: 1 1 100%; justify-content: space-between;

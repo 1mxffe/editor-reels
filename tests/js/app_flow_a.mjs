@@ -487,6 +487,199 @@ await cenario('ultimaPalavra', async () => {
   return r;
 });
 
+// ================================================== selecionar varias palavras
+const telaSel = async (page, nome) => {
+  if (!cfg.screens_select) return;
+  fs.mkdirSync(cfg.screens_select, { recursive: true });
+  await page.evaluate(() => document.fonts.ready.then(() => true));
+  await page.screenshot({ path: path.join(cfg.screens_select, nome), fullPage: true });
+};
+
+await cenario('selecao', async () => {
+  const s = await novoProjeto(srvR, 'Reel selecao');
+  const d = path.join(srvR.root, s);
+  const dur = 6.0;
+  // 15 palavras coladas (sem pausa); frases terminam em i=4, 9 e 14; a ultima passa do fim (6,03)
+  const nomes = ['Prazo', 'para', 'recorrer', 'conta', 'dias.', 'Leia', 'toda', 'intimação', 'com', 'calma.',
+    'Depois', 'fale', 'com', 'seu', 'advogado.'];
+  const words = nomes.map((w, i) => ({ w, start: Math.round((0.2 + 0.38 * i) * 100) / 100,
+    end: Math.round((0.2 + 0.38 * (i + 1)) * 100) / 100 }));
+  words[14].end = 6.03;
+  fs.writeFileSync(path.join(d, 'transcricao.json'), JSON.stringify({ duration: dur, words }));
+  const j = (await api(srvR, 'POST', `/api/projects/${s}/jobs/cortes`, {})).json.job_id;
+  await esperar(async () => (await api(srvR, 'GET', `/api/jobs/${j}`)).json.estado !== 'rodando', 30000);
+  const ctx = await contexto();
+  const pg = await abrir(ctx, srvR, s);
+  const puts = [];
+  pg.on('request', (rq) => {
+    if (rq.method() === 'PUT' && rq.url().endsWith('/revisao')) puts.push(rq.postDataJSON());
+  });
+  await pg.click('#passos .passo[data-passo="cortes"]');
+  await pg.waitForSelector('#cortes-palavras .palavra[data-i="14"]');
+  const W = (i) => `#cortes-palavras .palavra[data-i="${i}"]`;
+  const livre = () => esperar(async () => !(await pg.$('#painel [data-ocupado]')));
+  const estado = (i) => pg.getAttribute(W(i), 'data-estado');
+  const marcadas = () => pg.$$eval('#cortes-palavras .palavra[data-sel="1"]', (bs) => bs.map((b) => Number(b.dataset.i)));
+  const barra = () => pg.$eval('#cortes-barra', (b) => !b.hidden).catch(() => false);
+  const info = async () => (await pg.textContent('#cortes-sel-info')).replace(/\s+/g, ' ').trim();
+  const botoes = () => pg.$$eval('#cortes-barra button', (bs) => bs.filter((b) => b.offsetParent !== null)
+    .map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
+  const centro = async (i) => { const b = await (await pg.$(W(i))).boundingBox(); return [b.x + b.width / 2, b.y + b.height / 2]; };
+  const arrastar = async (de, ate) => {
+    const [x1, y1] = await centro(de);
+    const [x2, y2] = await centro(ate);
+    await pg.mouse.move(x1, y1);
+    await pg.mouse.down();
+    await pg.mouse.move((x1 + x2) / 2, (y1 + y2) / 2, { steps: 4 });
+    await pg.mouse.move(x2, y2, { steps: 4 });
+    await pg.mouse.up();
+  };
+  const r = { duracao: dur };
+  r.dica = (await pg.textContent('#painel')).replace(/\s+/g, ' ');
+  r.barraInicio = await barra();
+  r.ariaLive = await pg.getAttribute('#cortes-sel-info', 'aria-live');
+
+  // 1) arrastar da 3a a 7a palavra: seleciona, depois UM PUT com UM intervalo
+  const p0 = puts.length;
+  await arrastar(2, 6);
+  await esperar(async () => (await marcadas()).length === 5);
+  r.arrasto = { marcadas: await marcadas(), putsAposArrastar: puts.length - p0, barra: await barra(),
+    info: await info(), botoes: await botoes() };
+  r.arrasto.destaque = await pg.$eval(W(3), (b) => {
+    const c = getComputedStyle(b);
+    return { sombra: c.boxShadow, fundo: c.backgroundColor };
+  });
+  r.arrasto.normal = await pg.$eval(W(12), (b) => {
+    const c = getComputedStyle(b);
+    return { sombra: c.boxShadow, fundo: c.backgroundColor };
+  });
+  visivel.selecao = await textoVisivel(pg);
+  await telaSel(pg, 'selecao-1280-claro.png');
+  await pg.click('#cortes-sel-cortar');
+  await esperar(async () => (await estado(6)) === 'cortada');
+  await livre();
+  let rv = await revisao(srvR, s);
+  r.arrasto.puts = puts.slice(p0);
+  r.arrasto.estados = await Promise.all([1, 2, 3, 4, 5, 6, 7].map(estado));
+  r.arrasto.cortes = rv.cuts.filter((c) => c.active);
+  r.arrasto.palavras = [rv.words[2], rv.words[6]];
+  r.arrasto.depoisMarcadas = await marcadas();
+  r.arrasto.depoisBarra = await barra();
+
+  // 2) restaurar, arrastando no sentido inverso (da 7a para a 3a)
+  const p1 = puts.length;
+  await arrastar(6, 2);
+  await esperar(async () => (await marcadas()).length === 5);
+  r.restaurar = { botoes: await botoes(), info: await info() };
+  await pg.click('#cortes-sel-restaurar');
+  await esperar(async () => (await estado(6)) === 'mantida');
+  await livre();
+  rv = await revisao(srvR, s);
+  r.restaurar.puts = puts.slice(p1);
+  r.restaurar.estados = await Promise.all([2, 3, 4, 5, 6].map(estado));
+  r.restaurar.ativos = rv.cuts.filter((c) => c.active && c.kind === 'manual').length;
+
+  // 3) ctrl+clique marca avulsa, shift+clique estende, Esc limpa
+  const p2 = puts.length;
+  await pg.click(W(1), { modifiers: ['Control'] });
+  await pg.click(W(4), { modifiers: ['Shift'] });
+  r.shift = { marcadas: await marcadas(), info: await info() };
+  await pg.keyboard.press('Escape');
+  await esperar(async () => (await marcadas()).length === 0);
+  r.esc = { barra: await barra(), putsNovos: puts.length - p2 };
+
+  // 4) ctrl+clique em duas palavras separadas: dois intervalos em UM pedido
+  await pg.click(W(8), { modifiers: ['Control'] });
+  await pg.click(W(10), { modifiers: ['Control'] });
+  r.avulsas = { marcadas: await marcadas(), botoes: await botoes() };
+  const p3 = puts.length;
+  await pg.click('#cortes-sel-cortar');
+  await esperar(async () => (await estado(10)) === 'cortada');
+  await livre();
+  r.avulsas.puts = puts.slice(p3);
+  r.avulsas.estados = [await estado(8), await estado(9), await estado(10)];
+
+  // 5) selecao mista (8 cortada, 9 mantida): os dois botoes; restaurar mexe so no que esta cortado
+  await pg.click(W(8), { modifiers: ['Control'] });
+  await pg.click(W(9), { modifiers: ['Control'] });
+  r.mista = { botoes: await botoes(), info: await info() };
+  const p4 = puts.length;
+  await pg.click('#cortes-sel-restaurar');
+  await esperar(async () => (await estado(8)) === 'mantida');
+  await livre();
+  r.mista.puts = puts.slice(p4);
+  r.mista.estados = [await estado(8), await estado(9), await estado(10)];
+
+  // 6) duplo clique: a frase inteira (ate o ponto final), sem gravar nada
+  const p5 = puts.length;
+  await pg.dblclick(W(7));
+  await esperar(async () => (await marcadas()).length === 5);
+  await new Promise((ok) => setTimeout(ok, 600));
+  r.frase = { marcadas: await marcadas(), putsNovos: puts.length - p5, estado7: await estado(7) };
+  await pg.keyboard.press('Escape');
+
+  // 7) teclado: setas movem o foco, Shift+setas estendem, Enter corta; a ultima palavra passa do fim
+  await pg.focus(W(11));
+  await pg.keyboard.press('ArrowRight');
+  r.teclado = { foco: await pg.evaluate(() => Number(document.activeElement.dataset.i)) };
+  await pg.keyboard.press('Shift+ArrowRight');
+  await pg.keyboard.press('Shift+ArrowRight');
+  await esperar(async () => (await marcadas()).length === 3);
+  r.teclado.marcadas = await marcadas();
+  r.teclado.info = await info();
+  r.teclado.botoes = await botoes();
+  const p6 = puts.length;
+  await pg.keyboard.press('Enter');
+  await esperar(async () => (await estado(14)) === 'cortada' || !(await pg.$eval('#cortes-erro', (e) => e.hidden)));
+  await livre();
+  rv = await revisao(srvR, s);
+  r.teclado.puts = puts.slice(p6);
+  r.teclado.estados = [await estado(12), await estado(13), await estado(14)];
+  r.teclado.erro = await pg.$eval('#cortes-erro', (e) => (e.hidden ? '' : e.textContent));
+  r.teclado.corte = rv.cuts.find((c) => c.active && c.start >= words[12].start - 0.001) || null;
+  r.teclado.focoDepois = await pg.evaluate(() => (document.activeElement && document.activeElement.dataset.i) || '');
+
+  // 8) recarregar: os cortes sao do servidor
+  await pg.reload();
+  await pg.waitForSelector('#painel[data-passo]');
+  await pg.click('#passos .passo[data-passo="cortes"]');
+  await pg.waitForSelector('#cortes-palavras .palavra[data-i="14"]');
+  r.recarregar = { estados: [await estado(12), await estado(13), await estado(14)], marcadas: await marcadas() };
+  r.erros = pg.__erros.slice();
+  await ctx.close();
+
+  // 375 px com selecao ativa
+  const c2 = await contexto({ viewport: { width: 375, height: 800 } });
+  const p2pg = await abrir(c2, srvR, s);
+  await p2pg.click('#passos .passo[data-passo="cortes"]');
+  await p2pg.waitForSelector('#cortes-palavras .palavra[data-i="14"]');
+  const box = async (i) => (await (await p2pg.$(`#cortes-palavras .palavra[data-i="${i}"]`)).boundingBox());
+  await p2pg.evaluate(() => document.querySelector('#cortes-palavras').scrollIntoView({ block: 'center', behavior: 'instant' }));
+  const b1 = await box(0);
+  const b2 = await box(5);
+  await p2pg.mouse.move(b1.x + b1.width / 2, b1.y + b1.height / 2);
+  await p2pg.mouse.down();
+  await p2pg.mouse.move(b2.x + b2.width / 2, b2.y + b2.height / 2, { steps: 8 });
+  await p2pg.mouse.up();
+  await p2pg.waitForSelector('#cortes-barra:not([hidden])');
+  r.estreito = {
+    medidas: await semRolagem(p2pg),
+    marcadas: await p2pg.$$eval('#cortes-palavras .palavra[data-sel="1"]', (bs) => bs.length),
+    botoes: await p2pg.$$eval('#cortes-barra button', (bs) => bs.filter((b) => b.offsetParent !== null).map((b) => {
+      const q = b.getBoundingClientRect();
+      return { t: b.textContent.trim(), w: q.width, h: q.height, dentro: q.left >= 0 && q.right <= 375 };
+    })),
+    barraNaTela: await p2pg.$eval('#cortes-barra', (b) => {
+      const q = b.getBoundingClientRect();
+      return q.left >= 0 && q.right <= 375 && q.bottom <= innerHeight + 1 && q.top >= 0;
+    }),
+  };
+  await telaSel(p2pg, 'selecao-375-claro.png');
+  r.estreito.erros = p2pg.__erros.slice();
+  await c2.close();
+  return r;
+});
+
 // ================================================== traducao de mensagens
 await cenario('mensagens', async () => {
   const m = await import(pathToFileURL(path.resolve(path.dirname(cfg.tempo_js), 'mensagens.js')).href);
