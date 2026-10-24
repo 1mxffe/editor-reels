@@ -104,3 +104,26 @@ def run(cmd: list[str]) -> str:
         tail = "\n".join(proc.stderr.strip().splitlines()[-10:])
         fail(f"{cmd[0]} falhou (codigo {proc.returncode}): {tail}")
     return proc.stdout
+
+
+_FILTERS_CACHE: dict[str, bool] = {}
+
+
+def ffmpeg_has_libass() -> bool:
+    """True se o ffmpeg tem os filtros ``subtitles`` e ``ass`` (libass).
+
+    Consulta ``ffmpeg -hide_banner -filters`` uma vez por processo (timeout 15 s).
+    Qualquer falha na consulta assume True: o caminho atual (ASS) segue valendo.
+    """
+    if "libass" not in _FILTERS_CACHE:
+        try:
+            proc = subprocess.run(["ffmpeg", "-hide_banner", "-filters"],
+                                  capture_output=True, text=True, timeout=15)
+            if proc.returncode != 0:
+                raise OSError(proc.returncode)
+            names = {parts[1] for parts in (ln.split() for ln in proc.stdout.splitlines())
+                     if len(parts) >= 3}
+            _FILTERS_CACHE["libass"] = "subtitles" in names and "ass" in names
+        except (OSError, subprocess.SubprocessError, ValueError):
+            _FILTERS_CACHE["libass"] = True
+    return _FILTERS_CACHE["libass"]

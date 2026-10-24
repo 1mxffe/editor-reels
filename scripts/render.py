@@ -19,7 +19,8 @@ revisao) -> brand.load (marca ausente ou incompleta levanta BrandMissing; nada e
 inventado) -> renderizador de graficos disponivel (so com cards) -> cut.apply em
 arquivo temporario -> cards desenhados (WebM com alfa) -> segunda passada: escala
 para cobrir + corte central, 30 fps, cards sobrepostos no instante ``at``,
-legendas ASS queimadas por cima, libx264 + aac. A saida e gravada por
+legendas ASS queimadas por cima (ffmpeg sem libass: legendas por imagem, PNG por
+frase via legendas_imagem.py, mesma ordem de camadas), libx264 + aac. A saida e gravada por
 ``common.atomic_write`` (temporario de nome unico no mesmo diretorio, modo normal de
 arquivo) e renomeada ao fim; temporarios sao apagados tambem em caso de falha.
 
@@ -41,6 +42,7 @@ import captions  # noqa: E402
 import common  # noqa: E402
 import cut  # noqa: E402
 import graphics  # noqa: E402
+import legendas_imagem  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_BRAND = REPO / "brand" / "brand.json"
@@ -175,6 +177,25 @@ def _video_filter(size: tuple[int, int], ass: Path) -> str:
     return f"{_base_filter(size)},{_subtitles_filter(ass)}"
 
 
+def has_libass() -> bool:
+    """O ffmpeg tem o filtro ``subtitles``? (falha na deteccao = sim, caminho atual)"""
+    return common.ffmpeg_has_libass()
+
+
+def _image_captions_filter(size: tuple[int, int], cards: list[dict], track_input: int) -> str:
+    """Grafo sem libass: cards (entradas 1..n) e, por cima, a trilha de PNGs das frases."""
+    parts = [f"[0:v]{_base_filter(size)}[b0]"]
+    for i, c in enumerate(cards, 1):
+        at, end = f"{c['at']:.3f}", f"{c['at'] + c['dur']:.3f}"
+        parts.append(f"[{i}:v]setpts=PTS-STARTPTS+{at}/TB[g{i}]")
+        parts.append(f"[b{i - 1}][g{i}]overlay=x=0:y=0:eof_action=pass:"
+                     f"enable='between(t,{at},{end})'[b{i}]")
+    parts.append(f"[{track_input}:v]format=rgba[leg]")
+    parts.append(f"[b{len(cards)}][leg]overlay=x=0:y=0:eof_action=pass:repeatlast=0,"
+                 "format=yuv420p[vout]")
+    return ";".join(parts)
+
+
 def _cards_filter(size: tuple[int, int], ass: Path, cards: list[dict]) -> str:
     """Grafo com os cards (entradas 1..n) sobrepostos ANTES das legendas (legenda por cima)."""
     parts = [f"[0:v]{_base_filter(size)}[b0]"]
@@ -231,6 +252,8 @@ def render(project: Path, quality: Literal["preview", "final"],
     saida.mkdir(parents=True, exist_ok=True)
     out = saida / f"{quality}.mp4"
     temps: list[Path] = []
+    libass = has_libass()
+    tmpdir = None
 
     def _mktemp(prefix: str, suffix: str) -> Path:
         fd, name = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=saida)
@@ -252,7 +275,13 @@ def render(project: Path, quality: Literal["preview", "final"],
         cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(cut_tmp)]
         for clip in clips:  # decodificador libvpx: o nativo descarta o canal alfa
             cmd += ["-c:v", "libvpx-vp9", "-i", str(clip)]
-        if clips:
+        if not libass:  # ffmpeg sem libass: legendas por imagem (PNG por frase)
+            tmpdir = tempfile.TemporaryDirectory(prefix=".legendas-", dir=saida)
+            tmp_root = Path(tmpdir.name)
+            track = legendas_imagem.write_track(phrases, brand, size, tmp_root)
+            cmd += ["-f", "concat", "-safe", "0", "-i", str(track), "-filter_complex",
+                    _image_captions_filter(size, cards, len(clips) + 1), "-map", "[vout]"]
+        elif clips:
             cmd += ["-filter_complex", _cards_filter(size, ass_tmp, cards), "-map", "[vout]"]
         else:
             cmd += ["-vf", _video_filter(size, ass_tmp), "-map", "0:v:0"]
@@ -265,6 +294,8 @@ def render(project: Path, quality: Literal["preview", "final"],
         with common.atomic_write(out, suffix=".mp4") as tmp_out:
             common.run(cmd + [str(tmp_out)])
     finally:
+        if tmpdir is not None:
+            tmpdir.cleanup()
         for p in temps:
             try:
                 p.unlink()
@@ -284,6 +315,8 @@ def main(argv: list[str] | None = None) -> None:
     except brandmod.BrandMissing as e:
         common.fail(f"{e}. Marca ausente, incompleta ou inválida (brand/brand.json): "
                     "rode a entrevista de marca antes de renderizar.")
+    except legendas_imagem.PillowMissing as e:
+        common.fail(str(e))
     except (ProjectError, graphics.GraphicsError, OSError, ValueError) as e:
         common.fail(str(e))
     print(out)

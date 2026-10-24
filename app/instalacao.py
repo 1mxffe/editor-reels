@@ -41,6 +41,10 @@ ITENS: dict[str, tuple[str, str, bool, str, str | None]] = {
         "graficos", "Navegador de gráficos", True,
         "Sem ele os cards de gráfico não são desenhados.",
         "npm install && npx playwright install chromium"),
+    "legendas (filtro subtitles do ffmpeg)": (
+        "legendas", "Legendas", True,
+        "Legendas: usando o modo alternativo — tudo certo",
+        None),
 }
 
 ESTADOS = {"READY": "pronto", "READY WITH LIMITS": "pronto com limites"}

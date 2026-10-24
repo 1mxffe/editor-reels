@@ -3,7 +3,8 @@
 Obrigatorios: python >= 3.11, ffmpeg, ffprobe e disco. Opcionais (sem eles o status
 e READY WITH LIMITS e o motivo aparece na linha do item): faster_whisper
 (transcricao), Pillow (capa: candidatos e composicao), node (cards e capa) e
-node + Playwright/Chromium + ffmpeg com libvpx-vp9 (cards animados). Python 3.11 ou
+node + Playwright/Chromium + ffmpeg com libvpx-vp9 (cards animados). Informativo,
+nunca muda o estado: ffmpeg sem o filtro subtitles (libass) usa legendas por imagem. Python 3.11 ou
 mais novo e obrigatorio (versao minima suportada e testada); este arquivo sobe em
 python antigo (3.9 do macOS) so para conseguir reportar isso, por isso nao importa
 os outros scripts antes de conferir a versao.
@@ -48,6 +49,12 @@ def _graphics_reason() -> str | None:
 
 GRAPHICS_ITEM = "chromium + playwright (opcional: graficos)"
 PILLOW_ITEM = "Pillow (opcional: capa)"
+LEGENDAS_ITEM = "legendas (filtro subtitles do ffmpeg)"
+
+
+def _has_libass() -> bool:
+    import common
+    return common.ffmpeg_has_libass()
 
 
 def _python_item() -> dict:
@@ -70,6 +77,11 @@ def check() -> tuple[str, list[dict]]:
     if not pillow_item["ok"]:
         pillow_item["detail"] = ("sem ele não há candidatos nem composição da capa; "
                                  "pip install -r requirements.txt")
+    # Informativo: sem libass o render usa legendas por imagem; nunca rebaixa o estado.
+    leg_item = {"name": LEGENDAS_ITEM, "ok": _has_libass() if py["ok"] else True,
+                "required": False, "info": True}
+    if not leg_item["ok"]:
+        leg_item["detail"] = "usando legendas por imagem"
     items = [
         py,
         {"name": "ffmpeg", "ok": shutil.which("ffmpeg") is not None, "required": True},
@@ -80,10 +92,11 @@ def check() -> tuple[str, list[dict]]:
         {"name": "faster_whisper (opcional)", "ok": _has_whisper(), "required": False},
         pillow_item,
         graphics_item,
+        leg_item,
     ]
     if any(i["required"] and not i["ok"] for i in items):
         return "MISSING", items
-    if any(not i["required"] and not i["ok"] for i in items):
+    if any(not i["required"] and not i["ok"] and not i.get("info") for i in items):
         return "READY WITH LIMITS", items
     return "READY", items
 

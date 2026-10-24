@@ -10,6 +10,7 @@ def _all_present(monkeypatch):
     monkeypatch.setattr(doctor, "_free_gb", lambda path=".": 100.0)
     monkeypatch.setattr(doctor, "_graphics_reason", lambda: None)
     monkeypatch.setattr(doctor, "_has_pillow", lambda: True)
+    monkeypatch.setattr(doctor, "_has_libass", lambda: True)
 
 
 def test_doctor_ready_when_all_present(monkeypatch):
