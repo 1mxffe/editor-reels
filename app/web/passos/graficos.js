@@ -47,7 +47,7 @@ function miniatura(slug, mat, classe = 'miniatura') {
   if (mat.tipo === 'video') {
     return el('span', { class: `${classe} miniatura-video`, 'aria-hidden': 'true' }, icone('video', 'icone-grande'));
   }
-  return el('img', { class: classe, src: urlArquivo(slug, mat.rel), alt: '', loading: 'lazy', decoding: 'async' });
+  return el('img', { class: classe, src: urlArquivo(slug, mat.rel), alt: '' });
 }
 
 // ------------------------------------------------------------------ materiais
@@ -70,7 +70,7 @@ function abaMateriais(ctx, estadoTela) {
       miniatura(slug, m),
       el('div', { class: 'material-info' },
         el('strong', { class: 'material-nome', title: m.nome }, m.nome),
-        el('span', { class: 'suave' }, `${m.tipo === 'video' ? 'Vídeo' : 'Imagem'} · ${tamanho(m.tamanho)}`)),
+        el('span', { class: 'suave' }, `${m.tipo === 'video' ? 'Vídeo' : 'Imagem'} · ${m.tamanho < 1024 * 1024 ? `${Math.max(1, Math.round(m.tamanho / 1024))} KB` : tamanho(m.tamanho)}`)),
       el('button', {
         type: 'button', class: 'botao botao-secundario material-apagar', 'aria-label': `Apagar ${m.nome}`,
         onclick: () => apagar(m),

@@ -102,7 +102,7 @@ registrarPasso({
         const sel = mem.quadro === rel;
         const nome = nomeQuadro(rel);
         return el('li', { class: 'candidato', 'data-rel': rel, 'data-escolhido': String(sel) },
-          el('img', { src: urlArquivo(slug, rel, versaoQuadros), alt: nome, loading: 'lazy', decoding: 'async' }),
+          el('img', { src: urlArquivo(slug, rel, versaoQuadros), alt: nome }),
           el('button', {
             type: 'button', class: `botao ${sel ? 'botao-primario' : 'botao-secundario'} candidato-escolher`,
             'aria-pressed': String(sel), 'aria-label': `Escolher este quadro: ${nome}`,
