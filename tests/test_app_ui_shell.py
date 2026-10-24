@@ -297,7 +297,10 @@ def test_page_has_no_inline_script_or_external_resource():
 def test_font_is_the_brand_file():
     fonte = WEB / "fonts" / "Poppins-Bold.ttf"
     assert fonte.read_bytes() == (REPO / "assets" / "fonts" / "Poppins-Bold.ttf").read_bytes()
-    assert sorted(p.name for p in (WEB / "fonts").iterdir()) == ["Poppins-Bold.ttf"]
+    # so copias exatas das fontes da marca (assets/fonts), nada de fora
+    for p in (WEB / "fonts").iterdir():
+        assert p.name.startswith("Poppins-") and p.suffix == ".ttf", p.name
+        assert p.read_bytes() == (REPO / "assets" / "fonts" / p.name).read_bytes(), p.name
 
 
 def test_ui_text_has_no_jargon():
