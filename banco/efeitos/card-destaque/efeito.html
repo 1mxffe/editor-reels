@@ -212,9 +212,12 @@ window.setup = async (d) => {
       if (body) body.style.fontSize = (42 * k) + 'px';
     }, () => card.scrollHeight <= card.clientHeight + 1, 0.55);
   }
+  // cartao no tamanho maximo: a entrada sobe menos, para nao encostar na faixa da legenda
+  SUBIDA = Math.max(0, Math.min(48, d.area.bottom - FX.fundo(card)));
   return true;
 };
 
+let SUBIDA = 48;
 // Mesmo movimento do card antigo: sobe 48 px e aparece; sai subindo 24 px.
 window.setTime = (t) => {
   const D = FX.D, card = document.getElementById('efeito');
@@ -222,7 +225,7 @@ window.setTime = (t) => {
   let op = 1, dy = 0, s = 1;
   if (t < D.enter) {
     const p = FX.easeIn(t / D.enter);
-    op = p; dy = (1 - p) * 48; s = 0.985 + 0.015 * p;
+    op = p; dy = (1 - p) * SUBIDA; s = 0.985 + 0.015 * p;
   } else if (t > end - D.exit) {
     const q = FX.easeOut(Math.min(1, (t - (end - D.exit)) / D.exit));
     op = 1 - q; dy = -24 * q;

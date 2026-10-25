@@ -493,13 +493,13 @@ def test_polaroid_uses_video_frames(tmp_path, monkeypatch):
     proj = tmp_path / "p"
     proj.mkdir()
     _video(proj / "entrada.mp4", size="1080x1920")  # 0-1 s vermelho, 1-2 s azul
-    (proj / "transcricao.json").write_text(json.dumps({"duration": 2.0, "words": [
+    (proj / "transcricao.json").write_text(json.dumps({"duration": 4.0, "words": [
         {"w": "oi", "start": 1.0, "end": 1.5}]}), "utf-8")
     # corte de 0 a 0.9 s: na linha do tempo cortada, 0.05 s = 0.95 s do bruto (vermelho)
     # e 0.5 s = 1.4 s do bruto (azul)
     (proj / "cortes.json").write_text(json.dumps({"cuts": [
         {"id": "c1", "start": 0.0, "end": 0.9, "kind": "silencio"}]}), "utf-8")
-    c = graphics.validate(_spec("polaroides", {"imagens": ["quadro:0.05", "quadro:0.5"]}), proj)
+    c = graphics.validate(_spec("polaroides", {"imagens": ["quadro:0.05", "quadro:0.5"]}, at=0, dur=3), proj)
     assert [x["quadro"] for x in c["campos"]["imagens"]] == [0.95, 1.4]
     with pytest.raises(graphics.GraphicsError, match="fim do vídeo cortado"):
         graphics.validate(_spec("polaroides", {"imagens": ["quadro:5"]}), proj)
