@@ -565,9 +565,8 @@ def test_como_usar_covers_install_open_steps_files_and_errors():
     passos = re.findall(r"^\d\. \*\*(.+?)\*\*", doc, re.MULTILINE)
     assert passos == ["Vídeo", "Cortes", "Legendas", "Estilo", "Preview", "Gráficos",
                       "Capa", "Final"]
-    for emBreve in ("Estilo", "Gráficos", "Capa"):
-        linha = doc[doc.index(f"**{emBreve}**"):].split("\n\n")[0]
-        assert "chega em breve" in linha, emBreve
+    # Estilo, Gráficos e Capa já existem na tela: o guia não promete mais "em breve".
+    assert "chega em breve" not in doc
     assert "nada é enviado para a internet" not in doc
     assert "não saem do seu Mac" in doc and "30 minutos" in doc
     assert (REPO / "requirements.txt").is_file()
