@@ -1,0 +1,11 @@
+{
+  "nome": "Faixa azul",
+  "descricao": "Texto claro sobre uma faixa azul-marinho, embaixo. É o estilo de sempre.",
+  "tipo": "legenda",
+  "campos": [],
+  "dados": {
+    "estilo": "faixa",
+    "posicao_padrao": "baixo",
+    "tamanho_padrao": "M"
+  }
+}

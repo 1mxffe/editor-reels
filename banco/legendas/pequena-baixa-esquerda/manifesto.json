@@ -1,0 +1,11 @@
+{
+  "nome": "Pequena, baixa e à esquerda",
+  "descricao": "Letras pequenas, discretas, no canto de baixo à esquerda.",
+  "tipo": "legenda",
+  "campos": [],
+  "dados": {
+    "estilo": "pequena",
+    "posicao_padrao": "baixo",
+    "tamanho_padrao": "P"
+  }
+}

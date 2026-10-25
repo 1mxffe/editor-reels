@@ -1,0 +1,12 @@
+{
+  "nome": "Gelo claro",
+  "descricao": "Fundo claro e suave, com texto escuro e destaque em azul.",
+  "tipo": "paleta",
+  "campos": [],
+  "dados": {
+    "fundo": "#f3f8fb",
+    "texto": "#0b2540",
+    "destaque": "#1f5f9e",
+    "apoio": "#53677a"
+  }
+}

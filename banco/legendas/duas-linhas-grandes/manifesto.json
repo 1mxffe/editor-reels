@@ -1,0 +1,11 @@
+{
+  "nome": "Duas linhas grandes",
+  "descricao": "Letras grandes, em até duas linhas, bem fáceis de ler.",
+  "tipo": "legenda",
+  "campos": [],
+  "dados": {
+    "estilo": "duas-linhas",
+    "posicao_padrao": "baixo",
+    "tamanho_padrao": "G"
+  }
+}

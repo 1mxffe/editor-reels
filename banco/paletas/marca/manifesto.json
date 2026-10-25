@@ -1,0 +1,12 @@
+{
+  "nome": "Marca",
+  "descricao": "As cores do escritório: azul-marinho com texto gelo.",
+  "tipo": "paleta",
+  "campos": [],
+  "dados": {
+    "fundo": "#001931",
+    "texto": "#ddebf5",
+    "destaque": "#a8c8f0",
+    "apoio": "#566a7a"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "nome": "Marinho profundo",
+  "descricao": "Azul-marinho ainda mais escuro, com destaque em azul vivo.",
+  "tipo": "paleta",
+  "campos": [],
+  "dados": {
+    "fundo": "#000d1c",
+    "texto": "#e8f1f8",
+    "destaque": "#7fb2e5",
+    "apoio": "#6c8398"
+  }
+}

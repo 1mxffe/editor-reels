@@ -1,0 +1,11 @@
+{
+  "nome": "Pílula escura no centro",
+  "descricao": "Texto dentro de uma pílula escura, no meio da tela.",
+  "tipo": "legenda",
+  "campos": [],
+  "dados": {
+    "estilo": "pilula",
+    "posicao_padrao": "meio",
+    "tamanho_padrao": "M"
+  }
+}

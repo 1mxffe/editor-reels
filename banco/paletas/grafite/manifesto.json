@@ -1,0 +1,12 @@
+{
+  "nome": "Grafite",
+  "descricao": "Cinza-azulado escuro, sóbrio e discreto.",
+  "tipo": "paleta",
+  "campos": [],
+  "dados": {
+    "fundo": "#1c242b",
+    "texto": "#e6ecf0",
+    "destaque": "#9cc3e6",
+    "apoio": "#8697a5"
+  }
+}
