@@ -33,6 +33,8 @@ const DOCTOR_FALTA = {
     { name: 'node (opcional: cards e capa)', ok: false, required: false },
     { name: 'chromium + playwright (opcional: graficos)', ok: false, required: false,
       detail: 'Chromium do Playwright ausente (npx playwright install chromium)' },
+    { name: 'legendas (filtro subtitles do ffmpeg)', ok: false, required: false, info: true,
+      detail: 'usando legendas por imagem' },
   ],
 };
 

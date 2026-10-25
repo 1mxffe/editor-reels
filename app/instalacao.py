@@ -40,7 +40,7 @@ ITENS: dict[str, tuple[str, str, bool, str, str | None]] = {
     "chromium + playwright (opcional: graficos)": (
         "graficos", "Navegador de gráficos", True,
         "Sem ele os cards de gráfico não são desenhados.",
-        "npm install && npx playwright install chromium"),
+        "npm i -g playwright && npx playwright install chromium"),
     "legendas (filtro subtitles do ffmpeg)": (
         "legendas", "Legendas", True,
         "Legendas: usando o modo alternativo — tudo certo",
@@ -66,6 +66,7 @@ def traduzir(estado: str, itens: list[dict]) -> dict:
             mensagem = "Instalado." if ok else "Item novo da conferência; veja os detalhes técnicos."
         # o motivo cru do doctor vai separado: a tela o mostra so em "Detalhes tecnicos"
         out.append({"id": id_, "nome": nome, "ok": ok, "opcional": opcional,
+                    "informativo": bool(it.get("info")),
                     "mensagem": mensagem, "comando": comando,
                     "detalhe": None if ok else (detail or None)})
     return {"estado": ESTADOS.get(estado, "faltam itens"), "estado_codigo": estado,

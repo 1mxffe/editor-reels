@@ -29,7 +29,7 @@ async function copiar(texto, botao) {
 }
 
 function linhaItem(it, ctx, recarregar) {
-  const status = it.ok ? 'Instalado' : it.opcional ? 'Opcional, ainda não instalado' : 'Falta instalar';
+  const status = it.ok ? 'Instalado' : it.informativo ? 'Informação' : it.opcional ? 'Opcional, ainda não instalado' : 'Falta instalar';
   const conteudo = el('div', { class: 'item-conteudo' },
     el('div', { class: 'item-titulo' },
       el('strong', {}, it.nome),
@@ -52,8 +52,8 @@ function linhaItem(it, ctx, recarregar) {
         'Abra ou crie um Reel para instalar com um clique. Até lá, use o comando acima.'));
   }
   return el('li', { class: 'item', 'data-id': it.id, 'data-ok': String(it.ok) },
-    el('span', { class: `item-marca ${it.ok ? 'sim' : it.opcional ? 'opcional' : 'nao'}`, 'aria-hidden': 'true' },
-      it.ok ? '✓' : '✗'),
+    el('span', { class: `item-marca ${it.ok ? 'sim' : it.informativo ? 'info' : it.opcional ? 'opcional' : 'nao'}`, 'aria-hidden': 'true' },
+      it.ok ? '✓' : it.informativo ? 'ℹ' : '✗'),
     conteudo);
 }
 

@@ -2,7 +2,7 @@
 // na aba Materiais, as imagens e vídeos de apoio do Reel (pasta materiais/).
 // Miniaturas sempre por <img src> do endereço do arquivo: nada de HTML vindo de fora
 // (um SVG enviado nunca é colocado dentro da página).
-import { TOKEN, api, el, icone, registrarPasso, relogio, tamanho, toast, urlArquivo } from '../nucleo.js';
+import { EDITOR_FECHADO, TOKEN, api, el, icone, registrarPasso, relogio, tamanho, toast, urlArquivo } from '../nucleo.js';
 import { traduzir } from '../mensagens.js';
 import { versaoDe } from '../tarefa.js';
 
@@ -106,7 +106,7 @@ function abaMateriais(ctx, estadoTela) {
           headers: { 'X-Token': TOKEN, 'X-Filename': encodeURIComponent(arq.name) },
         });
       } catch {
-        falhas.push(`${arq.name}: sem conexão com o editor.`);
+        falhas.push(`${arq.name}: ${EDITOR_FECHADO}`);
         continue;
       }
       if (!resp.ok) {

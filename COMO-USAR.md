@@ -107,7 +107,7 @@ Se você der dois cliques com o editor já aberto, ele só abre a mesma página 
 novo; não começa outro.
 
 **Para fechar:** feche a janela do Terminal. Se você só fechar a página no
-navegador, o editor fecha sozinho depois de 5 minutos (mas espera terminar
+navegador, o editor fecha sozinho depois de 30 minutos (mas espera terminar
 qualquer trabalho que estiver rodando, como gerar o vídeo final).
 
 ---
@@ -161,7 +161,7 @@ reiniciado. Feche a aba e dê dois cliques em `Abrir Editor`.
 
 **A página diz "Sem conexão com o editor".**
 O editor foi fechado (a janela do Terminal foi fechada ou ele fechou sozinho
-depois de 5 minutos sem a página). Dê dois cliques em `Abrir Editor`; o que você
+depois de 30 minutos sem a página). Dê dois cliques em `Abrir Editor`; o que você
 já fez continua guardado.
 
 **O vídeo não envia.**

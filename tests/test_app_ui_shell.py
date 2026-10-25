@@ -143,12 +143,17 @@ def test_install_screen_lists_items_and_handle_form(results):
     r = _ok(results, "install")
     assert r["telaInicial"] == "instalacao", "primeira execucao abre a Instalacao"
     itens = {i["id"]: i for i in r["itens"]}
-    assert list(itens) == ["python", "ffmpeg", "disco", "whisper", "pillow", "node", "graficos"]
+    assert list(itens) == ["python", "ffmpeg", "disco", "whisper", "pillow", "node", "graficos", "legendas"]
     assert itens["python"]["ok"] == "true" and "✓" in itens["python"]["texto"]
     assert itens["ffmpeg"]["ok"] == "false" and "✗" in itens["ffmpeg"]["texto"]
     assert itens["ffmpeg"]["comando"] == "brew install ffmpeg" and itens["ffmpeg"]["copiar"]
     assert itens["python"]["comando"] is None, "item instalado nao mostra comando"
     assert "Opcional" in itens["whisper"]["texto"]
+    leg = itens["legendas"]
+    assert "ℹ" in leg["texto"] and "✗" not in leg["texto"], "item informativo mostra ℹ, nunca ✗"
+    assert "Falta instalar" not in leg["texto"] and "Opcional" not in leg["texto"]
+    assert leg["comando"] is None and not leg["copiar"]
+    assert "libass" not in leg["texto"].lower()
     assert r["copiado"] == "brew install ffmpeg"
     assert r["botaoCopiar"] == "Copiado"
     assert "faltam itens" in r["resumo"].lower() or "falta" in r["resumo"].lower()

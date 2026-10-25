@@ -443,6 +443,7 @@ progress::-moz-progress-bar { background: var(--destaque); }
 .item-marca.sim { background: var(--pronto-fundo); color: var(--pronto-texto); }
 .item-marca.nao { background: var(--erro-fundo); color: var(--erro-texto); border: 1px solid var(--erro-borda); }
 .item-marca.opcional { background: transparent; color: var(--texto-suave); border: 1.5px dashed var(--borda-forte); }
+.item-marca.info { background: transparent; color: var(--texto-suave); border: 1.5px solid var(--borda-forte); }
 .item-conteudo { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .item-titulo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .item-titulo strong { font-size: .9375rem; }

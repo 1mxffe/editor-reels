@@ -1,7 +1,7 @@
 // Casca da pagina: barra de passos, painel, player e troca de projeto.
 // Os passos de verdade vivem em passos/*.js e se registram via registrarPasso.
 import {
-  ORDEM, TOKEN, TOKEN_VALIDO, api, bloqueios, el, gravarUltimo, icone, lerUltimo, obrigatorio, passo,
+  EDITOR_FECHADO, ORDEM, TOKEN, TOKEN_VALIDO, api, bloqueios, el, gravarUltimo, icone, lerUltimo, obrigatorio, passo,
   passoPronto, quandoChaveInvalida, registrarPasso, toast, urlArquivo, Erro,
 } from './nucleo.js';
 import { criarPlayer } from './player.js';
@@ -232,13 +232,32 @@ for (const ev of ['dragover', 'drop']) {
 }
 
 // ------------------------------------------------------------------ batida
-// Avisa o editor que a pagina continua aberta; sem batida (e sem trabalho rodando)
-// ele fecha sozinho depois de 5 minutos. Falha e silenciosa: a proxima tenta de novo.
+// Avisa o editor que a pagina continua aberta; sem batida nem pedido (e sem trabalho
+// rodando) ele fecha sozinho depois de 30 minutos. O Chrome atrasa os timers de aba
+// escondida, por isso tambem se bate ao voltar para a aba. Uma falha e silenciosa
+// (a proxima tenta de novo); varias seguidas mostram que o editor foi fechado.
 const BATIDA_MS = 10_000;
+const FALHAS_PARA_AVISAR = 3;
+let falhasSeguidas = 0;
+let avisoFechado = false;
 function batida() {
   fetch('/api/heartbeat', { method: 'POST', headers: { 'X-Token': TOKEN }, keepalive: true })
-    .then((r) => r.arrayBuffer()).catch(() => {});
+    .then((r) => r.arrayBuffer().then(() => {
+      falhasSeguidas = 0;
+      if (avisoFechado) { avisoFechado = false; document.getElementById('fatal').hidden = true; }
+    }))
+    .catch(() => {
+      falhasSeguidas += 1;
+      if (falhasSeguidas >= FALHAS_PARA_AVISAR && !avisoFechado) {
+        avisoFechado = true;
+        fatal('O editor foi fechado', EDITOR_FECHADO);
+      }
+    });
 }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && TOKEN_VALIDO) batida();
+});
+window.addEventListener('focus', () => { if (TOKEN_VALIDO) batida(); });
 
 // ----------------------------------------------------------------- inicio
 async function iniciar() {

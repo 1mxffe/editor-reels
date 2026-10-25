@@ -16,8 +16,8 @@ em português simples: **[COMO-USAR.md](COMO-USAR.md)**.
 Por baixo, o lançador roda `python3 -I app/server.py` (servidor só em
 `127.0.0.1`, porta livre, chave de acesso no endereço `?t=`; `--porta N` fixa a
 porta e `--sem-navegador` só imprime o endereço). Um segundo lançamento reabre a
-mesma página (`projects/.app.json`); o servidor fecha sozinho 5 minutos depois de
-a página parar de dar sinal, se nenhuma tarefa estiver rodando.
+mesma página (`projects/.app.json`); o servidor fecha sozinho 30 minutos depois de
+a página parar de dar sinal, se nenhuma tarefa ou envio estiver em andamento.
 
 ## Requisitos
 

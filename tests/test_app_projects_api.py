@@ -173,6 +173,8 @@ def test_doctor_translated_items(srv, monkeypatch):  # noqa: C901
         {"name": "ffmpeg", "ok": True, "required": True},
         {"name": "faster_whisper (opcional)", "ok": False, "required": False},
         {"name": "item novo do futuro", "ok": False, "required": False, "detail": "motivo cru"},
+        {"name": "legendas (filtro subtitles do ffmpeg)", "ok": False, "required": False, "info": True,
+         "detail": "usando legendas por imagem"},
     ])
     monkeypatch.setattr(doctor, "check", lambda: fake)
     monkeypatch.setattr(server, "_doctor_check", lambda: fake, raising=False)
@@ -182,18 +184,31 @@ def test_doctor_translated_items(srv, monkeypatch):  # noqa: C901
         d = r.json()
         assert d["estado"] == "pronto com limites" and d["estado_codigo"] == "READY WITH LIMITS"
         itens = {i["id"]: i for i in d["itens"]}
-        assert len(d["itens"]) == 3
+        assert len(d["itens"]) == 4
         ff = itens["ffmpeg"]
         assert ff["ok"] is True and ff["opcional"] is False and ff["nome"]
-        assert set(ff) == {"id", "nome", "ok", "opcional", "mensagem", "comando", "detalhe"}
-        assert ff["detalhe"] is None
+        assert set(ff) == {"id", "nome", "ok", "opcional", "informativo", "mensagem", "comando", "detalhe"}
+        assert ff["detalhe"] is None and ff["informativo"] is False
         w = [i for i in d["itens"] if "whisper" in i["id"]][0]
         assert w["ok"] is False and w["opcional"] is True
         assert "texto do vídeo" in w["mensagem"].lower() and w["comando"]
         novo = d["itens"][2]
         assert novo["nome"] == "item novo do futuro" and novo["detalhe"] == "motivo cru"
         assert "motivo cru" not in novo["mensagem"]
-        assert novo["comando"] is None
+        assert novo["comando"] is None and novo["informativo"] is False
+        leg = itens["legendas"]
+        assert leg["informativo"] is True and leg["ok"] is False
+        assert "libass" not in (leg["nome"] + leg["mensagem"]).lower()
+
+
+def test_comando_do_navegador_de_graficos_e_o_da_tarefa():
+    """O texto copiavel tem de ser o mesmo comando que a tarefa executa (sem package.json)."""
+    import instalacao
+    import tarefas
+    cmd = instalacao.ITENS["chromium + playwright (opcional: graficos)"][4]
+    assert cmd == "npm i -g playwright && npx playwright install chromium"
+    from pathlib import Path
+    assert tarefas.argv("instalar-chromium", Path("."))[-1] == cmd
 
 
 def test_instalacao_covers_all_real_doctor_items():

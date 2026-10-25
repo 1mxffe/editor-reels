@@ -15,7 +15,9 @@ export class Erro extends Error {
   }
 }
 
-const SEM_CONEXAO = 'Sem conexão com o editor. Confira se a janela do editor continua aberta e tente de novo.';
+/** Sem resposta do editor: quase sempre a janela do Terminal foi fechada ou ele fechou sozinho. */
+export const EDITOR_FECHADO = 'O editor foi fechado. Dê dois cliques em Abrir Editor de novo e use a aba nova.';
+const SEM_CONEXAO = EDITOR_FECHADO;
 let aoPerderChave = () => {};
 
 /** Chamado uma vez pelo app: o que fazer quando o servidor recusa a chave (401). */

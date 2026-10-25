@@ -67,7 +67,7 @@ const REGRAS = [
     () => 'Espere o trabalho em andamento terminar e tente de novo.'],
   [/tempo limite|demorou demais/i, () => 'Demorou demais. Tente de novo.'],
   [/arquivos prontos/i, () => 'Ainda não há arquivos prontos neste Reel.'],
-  [/sem conex[aã]o/i, (m, t) => t],
+  [/sem conex[aã]o|editor foi fechado/i, (m, t) => t],
 ];
 
 // sinais de texto tecnico ou sem acento que nao deve chegar a tela

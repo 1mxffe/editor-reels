@@ -344,7 +344,7 @@ def test_idle_env_override_only_in_test_mode(raiz, monkeypatch):
     explicito = make_server(raiz, "t3", idle_seconds=7, check_seconds=0.2)
     try:
         assert (real.idle_seconds, real.check_seconds) == (server.IDLE_SECONDS, server.CHECK_SECONDS)
-        assert server.IDLE_SECONDS == 300
+        assert server.IDLE_SECONDS == 1800  # 30 min: aba escondida limita timers
         assert (teste.idle_seconds, teste.check_seconds) == (3.0, 0.5)
         assert (explicito.idle_seconds, explicito.check_seconds) == (7, 0.2)
     finally:
@@ -368,6 +368,37 @@ def test_no_shutdown_while_job_running(raiz):
         assert encerrou.wait(5), "terminada a tarefa e sem pagina, fecha"
     finally:
         parar.set()
+        srv.server_close()
+
+
+def test_no_shutdown_while_upload_in_progress(raiz):
+    """PUT longo (corpo chegando devagar) conta como atividade: o vigia nao fecha."""
+    (raiz / "reel").mkdir()
+    srv = make_server(raiz, "tok", idle_seconds=0.3, check_seconds=0.05)
+    threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+    encerrou = threading.Event()
+    parar = threading.Event()
+    conn = None
+    try:
+        server.iniciar_vigia(srv, encerrou.set, parar)
+        n = 2 * server.BLOCO
+        conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=20)
+        conn.putrequest("PUT", "/api/projects/reel/video")
+        for k, v in (("X-Token", "tok"), ("X-Filename", "a.mp4"), ("Content-Length", str(n))):
+            conn.putheader(k, v)
+        conn.endheaders()
+        conn.send(b"\0" * server.BLOCO)  # 1o bloco: o servidor passa a ficar esperando o 2o
+        assert _esperar(srv.app.enviando, prazo=5), "envio em andamento e registrado"
+        assert not encerrou.wait(1.2), "quatro vezes o limite sem pedido, mas com envio: nao fecha"
+        conn.send(b"\0" * server.BLOCO)
+        conn.getresponse().read()  # 400 (nao e video): o envio acabou
+        assert _esperar(lambda: not srv.app.enviando(), prazo=5)
+        assert encerrou.wait(5), "terminado o envio e sem pagina, fecha"
+    finally:
+        parar.set()
+        if conn:
+            conn.close()
+        srv.shutdown()
         srv.server_close()
 
 
@@ -513,7 +544,12 @@ def test_page_heartbeat_in_browser(tmp_path):
     assert res["terminadas"] == res["depois20s"], "resposta lida: nenhum pedido pendurado"
     assert res["ociosa"] is True, "a batida nao impede a rede de ficar ociosa"
     assert all(b["metodo"] == "POST" and b["token"] for b in res["batidas"])
-    assert res["fatal"] is False, "batida falhando nao mostra erro na tela"
+    assert res["fatal"] is False, "uma batida falhando nao mostra erro na tela"
+    assert res["aoVoltarVisivel"] == 1 and res["aoVoltarFoco"] == 1, "bate ao voltar para a aba"
+    msg = "O editor foi fechado. Dê dois cliques em Abrir Editor de novo e use a aba nova."
+    assert res["aviso"]["texto"] == msg, "varias falhas seguidas: mensagem clara"
+    assert res["msgApi"] == msg, "erro de rede da API usa a mesma mensagem"
+    assert res["avisoSumiu"] is True
 
 
 # ---------------------------------------------------------------- documentacao
@@ -533,7 +569,7 @@ def test_como_usar_covers_install_open_steps_files_and_errors():
         linha = doc[doc.index(f"**{emBreve}**"):].split("\n\n")[0]
         assert "chega em breve" in linha, emBreve
     assert "nada é enviado para a internet" not in doc
-    assert "não saem do seu Mac" in doc and "5 minutos" in doc
+    assert "não saem do seu Mac" in doc and "30 minutos" in doc
     assert (REPO / "requirements.txt").is_file()
     readme = (REPO / "README.md").read_text("utf-8")
     assert "COMO-USAR.md" in readme and "Abrir Editor.command" in readme

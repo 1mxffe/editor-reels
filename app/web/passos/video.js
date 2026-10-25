@@ -1,5 +1,5 @@
 // Passo 1, Video: criar/abrir um Reel e enviar o video bruto (XHR com progresso).
-import { TOKEN, api, el, frase, icone, registrarPasso, relogio, tamanho, toast } from '../nucleo.js';
+import { EDITOR_FECHADO, TOKEN, api, el, frase, icone, registrarPasso, relogio, tamanho, toast } from '../nucleo.js';
 
 const EXTENSOES = ['.mp4', '.mov', '.m4v', '.webm', '.mkv'];
 const FORMATOS = 'MP4, MOV, M4V, WEBM ou MKV';
@@ -87,7 +87,7 @@ function enviar(arquivo, ctx) {
   };
   xhr.onerror = () => {
     terminar();
-    avisar(slug, 'erro', 'A conexão com o editor caiu durante o envio. Confira se a janela do editor continua aberta e tente de novo.');
+    avisar(slug, 'erro', `A conexão com o editor caiu durante o envio. ${EDITOR_FECHADO}`);
   };
   xhr.onabort = () => {
     terminar();

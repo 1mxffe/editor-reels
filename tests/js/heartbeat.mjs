@@ -40,12 +40,42 @@ try {
   out.terminadas = terminadas;
   await page.waitForLoadState('networkidle', { timeout: 5000 });
   out.ociosa = true;
+  // aba escondida volta a ficar visivel / janela ganha o foco: bate na hora, sem esperar o timer
+  const antes = batidas.length;
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await esperar(() => batidas.length >= antes + 1);
+  out.aoVoltarVisivel = batidas.length - antes;
+  await esperar(() => terminadas >= batidas.length);
+  const antesFoco = batidas.length;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await esperar(() => batidas.length >= antesFoco + 1);
+  out.aoVoltarFoco = batidas.length - antesFoco;
+  await esperar(() => terminadas >= batidas.length);
   // editor fora do ar: a batida falha sem aviso nenhum na tela
+  const base = batidas.length;
   await page.route('**/api/heartbeat', (r) => r.abort());
   await page.clock.runFor(10_000);
-  await esperar(() => batidas.length >= out.inicial + 3);
+  await esperar(() => batidas.length >= base + 1);
   await page.waitForTimeout(200);
   out.fatal = await page.evaluate(() => !document.getElementById('fatal').hidden);
+  // varias falhas seguidas: mensagem clara em portugues, no lugar do erro generico
+  await page.clock.runFor(10_000);
+  await page.clock.runFor(10_000);
+  await esperar(async () => page.evaluate(() => !document.getElementById('fatal').hidden));
+  out.aviso = await page.evaluate(() => ({
+    titulo: document.getElementById('fatal-titulo').textContent,
+    texto: document.getElementById('fatal-texto').textContent }));
+  // chamadas da API sem resposta usam a mesma mensagem
+  await page.route('**/api/config', (r) => r.abort());
+  out.msgApi = await page.evaluate(async () => {
+    const m = await import('/static/nucleo.js');
+    try { await m.api('GET', '/api/config'); return ''; } catch (e) { return e.mensagem; }
+  });
+  // o editor volta (ex.: notebook acordou): o aviso some sozinho
+  await page.unroute('**/api/heartbeat');
+  await page.clock.runFor(10_000);
+  await esperar(async () => page.evaluate(() => document.getElementById('fatal').hidden));
+  out.avisoSumiu = true;
   out.batidas = batidas;
 } catch (e) {
   out.error = String(e && e.stack || e);

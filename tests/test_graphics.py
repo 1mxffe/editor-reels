@@ -6,6 +6,7 @@ integracao com o render via stubs, build_review) rodam sempre.
 """
 import json
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -435,3 +436,64 @@ def test_cli_refuses_output_equal_to_spec_or_brand(tmp_path):
                            capture_output=True, text=True)
         assert r.returncode == 1 and "mesmo arquivo" in r.stderr, (out, r.stderr)
     assert {p: p.read_bytes() for p in (spec, brand)} == before and link.is_symlink()
+
+
+# ---------------------------------------------------------------- NODE_PATH (npm i -g)
+
+def test_node_env_inclui_npm_root_global(monkeypatch):
+    """Com o node do Homebrew, 'npm i -g' fica em $(npm root -g), fora do require padrao."""
+    monkeypatch.setenv("NODE_PATH", "/ja/existe")
+    monkeypatch.setattr(graphics, "_npm_root", lambda: "/opt/homebrew/Cellar/node/lib/node_modules")
+    paths = graphics._node_env()["NODE_PATH"].split(os.pathsep)
+    assert paths[0] == "/ja/existe", "o NODE_PATH existente vem primeiro"
+    assert "/opt/homebrew/Cellar/node/lib/node_modules" in paths
+
+
+def test_npm_root_usa_lista_sem_shell_com_timeout(monkeypatch):
+    graphics._npm_root.cache_clear()
+    chamadas = []
+
+    def fake_run(cmd, **kw):
+        chamadas.append((cmd, kw))
+        return subprocess.CompletedProcess(cmd, 0, stdout="/x/lib/node_modules\n", stderr="")
+    monkeypatch.setattr(graphics.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(graphics.subprocess, "run", fake_run)
+    try:
+        assert graphics._npm_root() == "/x/lib/node_modules"
+        assert graphics._npm_root() == "/x/lib/node_modules"
+    finally:
+        graphics._npm_root.cache_clear()
+    assert len(chamadas) == 1, "resultado em cache"
+    cmd, kw = chamadas[0]
+    assert cmd == ["npm", "root", "-g"] and kw.get("timeout") and not kw.get("shell")
+
+
+@pytest.mark.parametrize("erro", [OSError("sem npm"), subprocess.TimeoutExpired("npm", 20)])
+def test_npm_root_falha_nao_derruba(monkeypatch, erro):
+    graphics._npm_root.cache_clear()
+
+    def boom(*a, **k):
+        raise erro
+    monkeypatch.setattr(graphics.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(graphics.subprocess, "run", boom)
+    monkeypatch.delenv("NODE_PATH", raising=False)
+    try:
+        assert graphics._npm_root() == ""
+        assert "NODE_PATH" in graphics._node_env()  # segue com os caminhos padrao
+    finally:
+        graphics._npm_root.cache_clear()
+
+
+def test_drive_passa_node_path_ao_node(tmp_path, monkeypatch):
+    visto = {}
+
+    def fake_run(cmd, what, *, env=None, timeout=None):
+        visto["cmd"], visto["env"] = cmd, env
+        return ""
+    monkeypatch.setattr(graphics, "_npm_root", lambda: "/g/node_modules")
+    monkeypatch.setattr(graphics, "_run", fake_run)
+    try:
+        graphics._drive({}, tmp_path, "teste")
+    except Exception:
+        pass
+    assert visto["cmd"][0] == "node" and "/g/node_modules" in visto["env"]["NODE_PATH"]

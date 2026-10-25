@@ -239,7 +239,11 @@ await cenario('capa', async () => {
   r.ganchoDepoisF5 = await pg.inputValue('#capa-gancho');
   r.escolhidoDepoisF5 = await pg.getAttribute('#capa-candidatos .candidato[data-escolhido="true"]', 'data-rel');
   await pg.click('#capa-achar');
-  await pg.waitForSelector('#tarefa[data-estado="rodando"]', { timeout: 10000 }).catch(() => {});
+  // Esperar por CONDICAO, nao por tempo: a tarefa "achar quadros" ainda pode nao ter aparecido
+  // (o POST nao voltou) e os quadros antigos ja estao na grade; ler o estado nesse instante
+  // pegava a escolha antiga (corrida do teste). A escolha so e apagada quando a tarefa termina
+  // e a tela e redesenhada: espera-se esse desfecho e depois a tarefa ficar ociosa.
+  await esperar(async () => (await pg.$$('#capa-candidatos .candidato[data-escolhido="true"]')).length === 0, 120000, 100);
   await ocioso(pg);
   await pg.waitForSelector('#capa-candidatos .candidato >> nth=2');
   r.escolhidosDepoisAchar = (await pg.$$('#capa-candidatos .candidato[data-escolhido="true"]')).length;

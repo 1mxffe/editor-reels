@@ -7,6 +7,7 @@ apenas de ``app/web``.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import hashlib
 import hmac
@@ -51,9 +52,10 @@ DIGITOS_RE = re.compile(r"[0-9]+", re.ASCII)
 MAX_NOME = 200
 NONCE_RE = re.compile(r"[0-9a-f]{32}", re.ASCII)
 
-# encerramento por inatividade: sem batida da pagina por IDLE_SECONDS e sem tarefa
-# rodando, o servidor fecha; confere a cada CHECK_SECONDS
-IDLE_SECONDS = 300
+# encerramento por inatividade: sem batida da pagina NEM pedido por IDLE_SECONDS, sem
+# tarefa rodando e sem envio em andamento, o servidor fecha; confere a cada CHECK_SECONDS.
+# 30 min: o Chrome atrasa os timers de aba escondida (1 por minuto) e ate os congela.
+IDLE_SECONDS = 1800
 CHECK_SECONDS = 5
 APP_JSON = ".app.json"  # {"porta","token","pid"} da instancia no ar, em projects/
 PADRAO_RAIZ = REPO_ROOT / "projects"
@@ -152,9 +154,28 @@ class App:
         self.ultimo_sinal = time.monotonic()  # batida da pagina; antes da 1a conta a subida
         self.max_material = MAX_MATERIAL
         self.materiais_lock = threading.Lock()  # escolha do nome livre + link
+        self._envios = 0  # PUTs de video/material em andamento (ver envio())
+        self._envios_lock = threading.Lock()
 
     def sinal(self) -> None:
         self.ultimo_sinal = time.monotonic()
+
+    @contextlib.contextmanager
+    def envio(self):
+        """Marca um envio (PUT longo) em andamento: o vigia nao fecha o editor enquanto
+        durar, e a contagem de inatividade recomeca quando termina."""
+        with self._envios_lock:
+            self._envios += 1
+        try:
+            yield
+        finally:
+            with self._envios_lock:
+                self._envios -= 1
+            self.sinal()
+
+    def enviando(self) -> bool:
+        with self._envios_lock:
+            return self._envios > 0
 
 
 def transcricao_falsa(server) -> bool:
@@ -709,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
             fd, nome_tmp = tempfile.mkstemp(dir=d, prefix=".entrada-", suffix=".tmp")
             tmp = Path(nome_tmp)
             total = 0
-            with os.fdopen(fd, "wb") as f:
+            with os.fdopen(fd, "wb") as f, self.app.envio():
                 while total < n:
                     bloco = self.rfile.read(min(BLOCO, n - total))
                     if not bloco:
@@ -837,7 +858,7 @@ class Handler(BaseHTTPRequestHandler):
             fd, nome_tmp = tempfile.mkstemp(dir=d, prefix=".material-", suffix=".tmp")
             tmp = Path(nome_tmp)
             total, cabeca = 0, b""
-            with os.fdopen(fd, "wb") as f:
+            with os.fdopen(fd, "wb") as f, self.app.envio():
                 while total < n:
                     bloco = self.rfile.read(min(BLOCO, n - total))
                     if not bloco:
@@ -1143,7 +1164,8 @@ def iniciar_vigia(server, encerrar, parar: threading.Event) -> threading.Thread:
     def vigiar():
         while not parar.wait(server.check_seconds):
             parado = time.monotonic() - server.app.ultimo_sinal
-            if parado >= server.idle_seconds and not server.app.jobs.algum_rodando():
+            if (parado >= server.idle_seconds and not server.app.jobs.algum_rodando()
+                    and not server.app.enviando()):
                 encerrar()
                 return
     t = threading.Thread(target=vigiar, name="vigia-inatividade", daemon=True)
@@ -1382,8 +1404,8 @@ def _main(args, raiz: Path, travado: bool) -> int:
                              daemon=True).start()
         minutos = max(1, round(srv.idle_seconds / 60))
         iniciar_vigia(srv, lambda: encerrar(
-            f"O editor fechou sozinho: a página ficou fechada por {minutos} "
-            f"minuto{'s' if minutos > 1 else ''}. Para usar de novo, dê dois cliques em "
+            f"O editor fechou sozinho: ficou {minutos} "
+            f"minuto{'s' if minutos > 1 else ''} sem uso. Para usar de novo, dê dois cliques em "
             "Abrir Editor."), parado)
         srv.serve_forever(poll_interval=0.2)
     except OSError:
