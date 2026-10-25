@@ -19,7 +19,7 @@ BRAND = REPO / "brand" / "brand.json"
 FALSO = REPO / "tests" / "fixtures_app.py"  # transcricao fixa: so em modo de teste
 
 TIPOS = ("transcrever", "cortes", "preview", "final",
-         "capa-candidatos", "capa", "instalar-chromium")
+         "capa-candidatos", "capa", "instalar-chromium", "quadros", "aplicar-estilo")
 
 SAIDAS = {
     "transcrever": ["transcricao.json"],
@@ -29,15 +29,34 @@ SAIDAS = {
     "capa-candidatos": [],
     "capa": ["capa/capa.png"],
     "instalar-chromium": [],
+    "aplicar-estilo": ["saida/preview.mp4"],
 }
+ABAS = ("paletas", "legendas", "efeitos")
+MAX_T = 24 * 3600
+# corpo maximo (bytes) por tipo; os demais usam o limite geral do servidor
+LIMITE_CORPO = {"aplicar-estilo": 16 * 1024}
 
 MODELOS = ("tiny", "base", "small", "medium", "large", "large-v2", "large-v3")
 LANG_RE = re.compile(r"[a-z]{2,3}")
 MAX_TEXTO = 120
 
 
-def saidas(tipo: str) -> list[str]:
-    return list(SAIDAS.get(tipo, []))
+def saidas(tipo: str, project: Path | None = None, *, marca: Path | None = None,
+           **opcoes) -> list[str]:
+    """Arquivos que a tarefa gera (relativos ao projeto). ``quadros``: os PNGs de cache da aba
+    (mesmo nome que ``banco.quadro`` grava), calculados com o estilo atual do projeto."""
+    if tipo != "quadros":
+        return list(SAIDAS.get(tipo, []))
+    import banco
+    import estilo
+    opts = validar(tipo, opcoes)
+    b = banco.carregar()
+    est = estilo.carregar(Path(project), b)
+    t = opts["t"] if "t" in opts else banco.t_padrao(Path(project))
+    tipo_item = banco.ABAS[opts["aba"]]
+    return ["quadros/" + banco.nome_quadro(Path(project), tipo_item, it["id"], est, t,
+                                           brand_path=marca or BRAND, banco=b)
+            for it in b.itens(tipo_item)[:banco.MAX_QUADROS_TAREFA]]
 
 
 def _inteiro(nome, valor, minimo, maximo):
@@ -96,6 +115,13 @@ def _quadro(nome, valor):
     return valor
 
 
+def _segundos(nome, valor):
+    if (isinstance(valor, bool) or not isinstance(valor, (int, float)) or valor != valor
+            or not 0 <= valor <= MAX_T):
+        raise ValueError(f"'{nome}' deve ser um número de segundos dentro do vídeo")
+    return float(valor)
+
+
 # tipo -> {chave: validador(nome, valor)}
 OPCOES = {
     "transcrever": {"lang": _lang, "model": lambda n, v: _enum(n, v, MODELOS)},
@@ -110,10 +136,14 @@ OPCOES = {
              "area": _texto,
              "subtitulo": lambda n, v: _texto(n, v, permitir_quebra=True)},
     "instalar-chromium": {},
+    "quadros": {"aba": lambda n, v: _enum(n, v, ABAS), "t": _segundos},
 }
 
 
 def validar(tipo: str, opcoes: dict) -> dict:
+    if tipo == "aplicar-estilo":  # o corpo e o proprio estilo.json, validado contra o banco
+        import estilo
+        return estilo.validar(opcoes)  # EstiloError e ValueError
     if tipo not in OPCOES:
         raise ValueError("tipo de tarefa desconhecido")
     if not isinstance(opcoes, dict):
@@ -174,6 +204,15 @@ def argv(tipo: str, project: Path, *, falso: bool = False, marca: Path | None = 
                                 str(project / "cortes.json")]
     if tipo in ("preview", "final"):
         return _py("render.py") + [str(project), tipo]
+    if tipo == "aplicar-estilo":  # o servidor grava o estilo.json antes; aqui so o preview
+        return _py("render.py") + [str(project), "preview"]
+    if tipo == "quadros":
+        if "aba" not in opts:
+            raise ValueError("escolha a aba (paletas, legendas ou efeitos)")
+        cmd = _py("banco.py") + ["quadros", str(project), f"--aba={opts['aba']}"]
+        if "t" in opts:
+            cmd.append(f"--t={opts['t']!r}")
+        return cmd + [f"--brand={marca or BRAND}"]
     if tipo == "capa-candidatos":
         modo = opts.get("modo", "video")
         saida = str(project / "capa")

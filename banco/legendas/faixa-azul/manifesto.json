@@ -7,5 +7,31 @@
     "estilo": "faixa",
     "posicao_padrao": "baixo",
     "tamanho_padrao": "M"
-  }
+  },
+  "variacoes": [
+    {
+      "nome": "Faixa azul no meio",
+      "dados": {
+        "estilo": "faixa",
+        "posicao_padrao": "meio",
+        "tamanho_padrao": "M"
+      }
+    },
+    {
+      "nome": "Faixa azul grande",
+      "dados": {
+        "estilo": "faixa",
+        "posicao_padrao": "baixo",
+        "tamanho_padrao": "G"
+      }
+    },
+    {
+      "nome": "Faixa azul pequena",
+      "dados": {
+        "estilo": "faixa",
+        "posicao_padrao": "baixo",
+        "tamanho_padrao": "P"
+      }
+    }
+  ]
 }

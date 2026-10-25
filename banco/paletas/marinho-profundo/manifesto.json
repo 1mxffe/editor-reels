@@ -8,5 +8,25 @@
     "texto": "#e8f1f8",
     "destaque": "#7fb2e5",
     "apoio": "#6c8398"
-  }
+  },
+  "variacoes": [
+    {
+      "nome": "Marinho mais claro",
+      "dados": {
+        "fundo": "#06213d",
+        "texto": "#e8f1f8",
+        "destaque": "#7fb2e5",
+        "apoio": "#6c8398"
+      }
+    },
+    {
+      "nome": "Marinho com destaque vivo",
+      "dados": {
+        "fundo": "#000d1c",
+        "texto": "#ffffff",
+        "destaque": "#5aa2ec",
+        "apoio": "#6c8398"
+      }
+    }
+  ]
 }

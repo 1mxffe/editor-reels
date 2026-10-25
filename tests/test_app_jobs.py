@@ -493,7 +493,8 @@ def test_argv_every_type_through_mocked_popen(root, monkeypatch):
     usuario = {"transcrever": {"lang": "pt", "model": "small"},
                "capa-candidatos": {"n": 3},
                "capa": {"quadro": "capa/candidato-1.png", "gancho": "ECHO; rm -rf /", "area": "$(x)",
-                        "subtitulo": "`y`"}}
+                        "subtitulo": "`y`"},
+               "quadros": {"aba": "paletas", "t": 1.0}}
     for tipo in tarefas.TIPOS:
         monkeypatch.setattr(FakeProc, "stdout", io.BytesIO(b""))
         a = tarefas.argv(tipo, p, **usuario.get(tipo, {}))

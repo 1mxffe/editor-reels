@@ -436,16 +436,8 @@ def duracao(project: Path) -> float:
     """Duracao da linha do tempo CORTADA (a do preview): transcricao + cortes; sem eles,
     a do proprio video (ffprobe)."""
     project = Path(project)
-    trans = _ler_json_projeto(project / "transcricao.json")
-    dur = trans.get("duration") if isinstance(trans, dict) else None
-    if common.is_num(dur) and dur > 0:
-        import cut as cutmod
-        doc = _ler_json_projeto(project / "cortes.json")
-        cuts = doc.get("cuts") if isinstance(doc, dict) else None
-        ok = isinstance(cuts, list) and all(
-            isinstance(c, dict) and common.is_num(c.get("start")) and common.is_num(c.get("end"))
-            for c in cuts)
-        keep = cutmod.keep_segments(float(dur), cuts) if ok else [(0.0, float(dur))]
+    keep = _trechos(project)
+    if keep:
         return round(sum(b - a for a, b in keep), 3)
     proc = _ffmpeg(["ffprobe", "-v", "error", "-show_entries", "format=duration",
                     "-of", "default=nw=1:nk=1", str(_video(project))], "duração do vídeo")
@@ -472,13 +464,33 @@ def _tempo(project: Path, t) -> float:
     return round(float(t), 3)
 
 
+def _trechos(project: Path) -> list | None:
+    """Trechos mantidos do video bruto (transcricao + cortes), ou None sem eles."""
+    trans = _ler_json_projeto(Path(project) / "transcricao.json")
+    dur = trans.get("duration") if isinstance(trans, dict) else None
+    if not (common.is_num(dur) and dur > 0):
+        return None
+    import cut as cutmod
+    doc = _ler_json_projeto(Path(project) / "cortes.json")
+    cuts = doc.get("cuts") if isinstance(doc, dict) else None
+    ok = isinstance(cuts, list) and all(
+        isinstance(c, dict) and common.is_num(c.get("start")) and common.is_num(c.get("end"))
+        for c in cuts)
+    keep = cutmod.keep_segments(float(dur), cuts) if ok else [(0.0, float(dur))]
+    return keep or None
+
+
 def _tempo_bruto(project: Path, t: float) -> float:
-    """Segundo da linha cortada -> segundo do video bruto (mesma conta do quadro:<s> dos efeitos)."""
-    import graphics
-    try:
-        return graphics._tempo_bruto(Path(project).resolve(), float(t), "quadro")
-    except graphics.GraphicsError as e:
-        raise BancoError(str(e)) from None
+    """Segundo da linha cortada -> segundo do video bruto (a conta do quadro:<s> dos efeitos)."""
+    keep = _trechos(project)
+    if not keep:
+        return float(t)
+    acc = 0.0
+    for a, b in keep:
+        if t <= acc + (b - a):
+            return min(b - 0.001, a + (t - acc))
+        acc += b - a
+    return keep[-1][1] - 0.001
 
 
 def _extrair_quadro(video: Path, bruto: float, size: tuple[int, int], out: Path) -> Path:

@@ -8,5 +8,25 @@
     "texto": "#0b2540",
     "destaque": "#1f5f9e",
     "apoio": "#53677a"
-  }
+  },
+  "variacoes": [
+    {
+      "nome": "Gelo com texto marinho",
+      "dados": {
+        "fundo": "#f3f8fb",
+        "texto": "#001931",
+        "destaque": "#1f5f9e",
+        "apoio": "#53677a"
+      }
+    },
+    {
+      "nome": "Gelo mais quente",
+      "dados": {
+        "fundo": "#f7f6f2",
+        "texto": "#0b2540",
+        "destaque": "#1f5f9e",
+        "apoio": "#6b6f73"
+      }
+    }
+  ]
 }

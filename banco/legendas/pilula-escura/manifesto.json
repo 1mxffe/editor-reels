@@ -7,5 +7,31 @@
     "estilo": "pilula",
     "posicao_padrao": "meio",
     "tamanho_padrao": "M"
-  }
+  },
+  "variacoes": [
+    {
+      "nome": "Pílula escura embaixo",
+      "dados": {
+        "estilo": "pilula",
+        "posicao_padrao": "baixo",
+        "tamanho_padrao": "M"
+      }
+    },
+    {
+      "nome": "Pílula escura grande",
+      "dados": {
+        "estilo": "pilula",
+        "posicao_padrao": "meio",
+        "tamanho_padrao": "G"
+      }
+    },
+    {
+      "nome": "Pílula escura pequena",
+      "dados": {
+        "estilo": "pilula",
+        "posicao_padrao": "meio",
+        "tamanho_padrao": "P"
+      }
+    }
+  ]
 }

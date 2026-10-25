@@ -8,5 +8,25 @@
     "texto": "#e6ecf0",
     "destaque": "#9cc3e6",
     "apoio": "#8697a5"
-  }
+  },
+  "variacoes": [
+    {
+      "nome": "Grafite mais escuro",
+      "dados": {
+        "fundo": "#11171c",
+        "texto": "#e6ecf0",
+        "destaque": "#9cc3e6",
+        "apoio": "#8697a5"
+      }
+    },
+    {
+      "nome": "Grafite com destaque gelo",
+      "dados": {
+        "fundo": "#1c242b",
+        "texto": "#ffffff",
+        "destaque": "#ddebf5",
+        "apoio": "#8697a5"
+      }
+    }
+  ]
 }

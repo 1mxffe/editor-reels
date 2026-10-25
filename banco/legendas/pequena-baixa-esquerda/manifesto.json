@@ -7,5 +7,23 @@
     "estilo": "pequena",
     "posicao_padrao": "baixo",
     "tamanho_padrao": "P"
-  }
+  },
+  "variacoes": [
+    {
+      "nome": "Pequena à esquerda, média",
+      "dados": {
+        "estilo": "pequena",
+        "posicao_padrao": "baixo",
+        "tamanho_padrao": "M"
+      }
+    },
+    {
+      "nome": "Pequena à esquerda, no meio",
+      "dados": {
+        "estilo": "pequena",
+        "posicao_padrao": "meio",
+        "tamanho_padrao": "P"
+      }
+    }
+  ]
 }

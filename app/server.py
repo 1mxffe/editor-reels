@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import brand  # noqa: E402
 import common  # noqa: E402
+import estilo_api  # noqa: E402
 import instalacao  # noqa: E402
 import revisao_api  # noqa: E402
 import tarefas  # noqa: E402
@@ -444,6 +445,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_reply(200, instalacao.traduzir(estado, itens))
         if path == "/api/brand":
             return self.api_brand()
+        if path == "/api/banco" or path.startswith("/api/banco/"):
+            return estilo_api.rota_banco(self, path, query)
         if path == "/api/projects":
             return self.api_projects()
         if path.startswith("/api/projects/"):
@@ -485,6 +488,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not self._permitir("DELETE"):
                     return
                 return self.api_material_apagar(slug, unquote(resto[2]))
+            if resto[1] == "estilo" and len(resto) == 2:
+                if not self._permitir("GET", "PUT"):
+                    return
+                return estilo_api.rota_estilo(self, slug)
             if resto[1] == "graficos" and len(resto) == 2:
                 if not self._permitir("GET", "PUT"):
                     return
@@ -518,16 +525,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         if tipo not in tarefas.TIPOS:
             return self.error(404, "Tipo de tarefa desconhecido")
-        ok, corpo = self._read_json()
+        ok, corpo = self._read_json(tarefas.LIMITE_CORPO.get(tipo, MAX_JSON))
         if not ok:
             return
         if corpo is None:
             corpo = {}
         try:
+            opts = tarefas.validar(tipo, corpo)
             argv = tarefas.argv(tipo, d, falso=transcricao_falsa(self.server),
-                                marca=self.app.brand_path, **tarefas.validar(tipo, corpo))
+                                marca=self.app.brand_path, **opts)
+            saidas = tarefas.saidas(tipo, d, marca=self.app.brand_path, **opts)
         except ValueError as e:
-            return self.error(400, str(e))
+            return self.error(400, revisao_api.sanitizar(str(e), d)[:500])
         if tipo == "capa" and not self._brand_info()["completa"]:
             return self.json_reply(409, {"erro": MARCA_INCOMPLETA, "codigo": "marca_incompleta"})
         trava = revisao_api.trava(slug)
@@ -535,10 +544,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_reply(409, {"erro": "a revisão deste projeto está em andamento",
                                          "codigo": "revisao_em_andamento"})
         try:
-            if tipo in ("preview", "final"):  # o que estes cortes/legendas vao gerar
-                projects_mod.registrar_origem(d, tipo)
-            job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT,
-                                         tarefas.saidas(tipo), ocultar=d)
+            if tipo == "aplicar-estilo":  # grava o estilo.json so sem tarefa rodando
+                if self.app.jobs.ativo_em(slug):
+                    raise JobBusy()
+                try:
+                    estilo_api.salvar(d, opts)
+                except (ValueError, OSError) as e:
+                    return self.error(400, revisao_api.sanitizar(str(e), d)[:500])
+            if tipo in ("preview", "final", "aplicar-estilo"):  # o que estes cortes/legendas vao gerar
+                projects_mod.registrar_origem(d, "preview" if tipo == "aplicar-estilo" else tipo)
+            job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT, saidas, ocultar=d)
         except JobBusy:
             return self.json_reply(409, {"erro": "já existe uma tarefa rodando neste projeto",
                                          "codigo": "tarefa_rodando"})

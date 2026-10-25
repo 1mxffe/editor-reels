@@ -44,4 +44,6 @@ Cada item é uma pasta com um arquivo `manifesto.json`. A tela de Estilo lê tud
 - Não use atalhos de pasta (links) nem `..` nos nomes. O manifesto tem no máximo 64 KiB.
 - Pastas cujo nome começa com ponto são ignoradas.
 - `campos` pode ser `[]` (item sem nada para preencher).
+- `variacoes` (opcional): até 12 objetos `{"nome": ..., "dados": {...}}` com `dados` iguais aos do
+  item (mesmas regras), mostrados no botão "mais parecido com este" do passo Estilo.
 - Chaves que não existem nesta lista fazem o item ser recusado.

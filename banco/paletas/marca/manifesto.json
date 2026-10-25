@@ -8,5 +8,25 @@
     "texto": "#ddebf5",
     "destaque": "#a8c8f0",
     "apoio": "#566a7a"
-  }
+  },
+  "variacoes": [
+    {
+      "nome": "Marca com texto branco",
+      "dados": {
+        "fundo": "#001931",
+        "texto": "#ffffff",
+        "destaque": "#cfe2f7",
+        "apoio": "#566a7a"
+      }
+    },
+    {
+      "nome": "Marca mais suave",
+      "dados": {
+        "fundo": "#0a2742",
+        "texto": "#ddebf5",
+        "destaque": "#a8c8f0",
+        "apoio": "#6f8396"
+      }
+    }
+  ]
 }
