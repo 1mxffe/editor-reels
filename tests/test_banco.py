@@ -228,7 +228,7 @@ def test_cli_validar_exit_codes(tmp_path):
     assert r.returncode == 1 and "Traceback" not in r.stderr
     assert "erro:" in r.stderr and "quebrada" in r.stderr
     r = run_cli("validar", "--raiz", str(tmp_path / "nao-existe"))
-    assert r.returncode == 0 and "aviso" in (r.stdout + r.stderr)
+    assert r.returncode == 1 and "erro:" in r.stderr
     r = run_cli("banana")
     assert r.returncode == 1 and "Traceback" not in r.stderr and "erro:" in r.stderr
     r = run_cli()
@@ -278,3 +278,133 @@ def test_unknown_entries_reported(tmp_path):
     (tmp_path / "README.md").write_text("x", encoding="utf-8")
     b = banco.carregar(tmp_path)
     assert {Path(e["pasta"]).name for e in b.erros} == {"solto.txt", "estranha"}
+
+
+# ---- rodada de correcao 1 ----
+
+def _escreve_bruto(raiz, nome, texto, plural="paletas"):
+    d = raiz / plural / nome
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "manifesto.json").write_text(texto, encoding="utf-8")
+    return d
+
+
+def test_deeply_nested_json_is_invalid_item_not_crash(tmp_path):
+    escreve(tmp_path, "paletas", "boa", manifesto())
+    fundo = "[" * 30000 + "]" * 30000
+    _escreve_bruto(tmp_path, "aninhada", '{"nome":"a","descricao":"b","tipo":"paleta","campos":'
+                   + fundo + ',"dados":{}}')
+    b = banco.carregar(tmp_path)
+    assert [i["id"] for i in b.itens("paleta")] == ["boa"]
+    assert "aninhad" in motivos(b)["aninhada"].lower() or "JSON" in motivos(b)["aninhada"]
+    r = run_cli("validar", "--raiz", str(tmp_path))
+    assert r.returncode == 1 and "Traceback" not in r.stderr and "erro:" in r.stderr
+    r = run_cli("listar", "--json", "--raiz", str(tmp_path))
+    assert r.returncode == 0 and json.loads(r.stdout)["erros"]
+
+
+def test_huge_integers_are_invalid_not_crash(tmp_path):
+    escreve(tmp_path, "paletas", "boa", manifesto())
+    gigante = "9" * 4000
+    base = ('{"nome":"a","descricao":"b","tipo":"paleta","campos":%s,"dados":'
+            '{"fundo":"#001931","texto":"#ddebf5","destaque":"#a8c8f0","apoio":"#566a7a"}%s}')
+    _escreve_bruto(tmp_path, "max-gigante", base % (
+        '[{"id":"a","rotulo":"A","tipo":"numero","max":%s}]' % gigante, ""))
+    _escreve_bruto(tmp_path, "min-gigante", base % (
+        '[{"id":"a","rotulo":"A","tipo":"numero","min":-%s}]' % gigante, ""))
+    _escreve_bruto(tmp_path, "duracao-gigante", base % (
+        "[]", ',"duracao":{"padrao":%s,"min":1,"max":%s}' % (gigante, gigante)))
+    b = banco.carregar(tmp_path)
+    assert [i["id"] for i in b.itens("paleta")] == ["boa"]
+    assert set(motivos(b)) == {"max-gigante", "min-gigante", "duracao-gigante"}
+    assert run_cli("validar", "--raiz", str(tmp_path)).stderr.count("Traceback") == 0
+
+
+def test_duplicate_json_keys_invalid(tmp_path):
+    _escreve_bruto(tmp_path, "dup", '{"nome":"a","nome":"b","descricao":"d","tipo":"paleta",'
+                   '"campos":[],"dados":{"fundo":"#001931","texto":"#ddebf5",'
+                   '"destaque":"#a8c8f0","apoio":"#566a7a"}}')
+    b = banco.carregar(tmp_path)
+    assert b.itens("paleta") == []
+    assert "repetid" in motivos(b)["dup"] and "nome" in motivos(b)["dup"]
+
+
+@pytest.mark.parametrize("ch", ["‮", "​", " ", " ", "﻿", "‍"])
+def test_invisible_unicode_rejected(tmp_path, ch):
+    escreve(tmp_path, "paletas", "nome", manifesto(nome=f"ab{ch}cd"))
+    escreve(tmp_path, "paletas", "desc", manifesto(descricao=f"ab{ch}cd"))
+    escreve(tmp_path, "paletas", "rotulo", manifesto(campos=[
+        {"id": "a", "rotulo": f"x{ch}y", "tipo": "texto"}]))
+    escreve(tmp_path, "paletas", "opcao", manifesto(campos=[
+        {"id": "a", "rotulo": "A", "tipo": "escolha", "opcoes": [f"x{ch}y"]}]))
+    b = banco.carregar(tmp_path)
+    assert b.itens("paleta") == [] and len(b.erros) == 4
+
+
+def test_accented_portuguese_text_still_ok(tmp_path):
+    escreve(tmp_path, "paletas", "ok", manifesto(nome="Pílula à esquerda", descricao="Ação, coração."))
+    assert len(banco.carregar(tmp_path).itens("paleta")) == 1
+
+
+def test_ceilings(tmp_path):
+    def num(**kw):
+        return manifesto(campos=[{"id": "a", "rotulo": "A", "tipo": "numero", **kw}])
+    ef = {"nome": "E", "descricao": "E.", "tipo": "efeito", "campos": [], "dados": {}}
+    casos = {
+        "dur-max-601": {**ef, "duracao": {"padrao": 3, "min": 1, "max": 601}},
+        "campo-max-grande": num(max=1000001),
+        "campo-min-grande": num(min=1000001),
+        "opcao-longa": manifesto(campos=[{"id": "a", "rotulo": "A", "tipo": "escolha",
+                                          "opcoes": ["x" * 61]}]),
+    }
+    for nome, m in casos.items():
+        d = escreve(tmp_path, "efeitos" if nome.startswith("dur") else "paletas", nome, m)
+        (d / "efeito.html").write_text("x", encoding="utf-8")
+    ok = escreve(tmp_path, "efeitos", "dur-600", {**ef, "duracao": {"padrao": 3, "min": 1, "max": 600}})
+    (ok / "efeito.html").write_text("x", encoding="utf-8")
+    escreve(tmp_path, "paletas", "campo-ok", num(min=0, max=1000000))
+    escreve(tmp_path, "paletas", "opcao-60", manifesto(campos=[
+        {"id": "a", "rotulo": "A", "tipo": "escolha", "opcoes": ["x" * 60]}]))
+    b = banco.carregar(tmp_path)
+    assert {i["id"] for i in b.itens("efeito")} == {"dur-600"}
+    assert {i["id"] for i in b.itens("paleta")} == {"campo-ok", "opcao-60"}
+    assert set(motivos(b)) == set(casos)
+
+
+def test_efeito_html_size_and_special_files(tmp_path):
+    ef = {"nome": "E", "descricao": "E.", "tipo": "efeito", "campos": [], "dados": {},
+          "duracao": {"padrao": 3, "min": 1, "max": 6}}
+    d = escreve(tmp_path, "efeitos", "grande", ef)
+    (d / "efeito.html").write_bytes(b"x" * (1024 * 1024 + 1))
+    d = escreve(tmp_path, "efeitos", "um-mib", ef)
+    (d / "efeito.html").write_bytes(b"x" * (1024 * 1024))
+    d = escreve(tmp_path, "efeitos", "fifo", ef)
+    os.mkfifo(d / "efeito.html")
+    d = escreve(tmp_path, "efeitos", "pasta", ef)
+    (d / "efeito.html").mkdir()
+    b = banco.carregar(tmp_path)
+    assert [i["id"] for i in b.itens("efeito")] == ["um-mib"]
+    m = motivos(b)
+    assert "grande demais" in m["grande"]
+    assert "arquivo comum" in m["fifo"] and "arquivo comum" in m["pasta"]
+
+
+def test_validar_missing_root_is_error(tmp_path):
+    r = run_cli("validar", "--raiz", str(tmp_path / "nao-existe"))
+    assert r.returncode == 1 and r.stderr.startswith("erro:") and "Traceback" not in r.stderr
+
+
+def test_faixa_azul_matches_captions_defaults():
+    import captions
+    brand = json.loads((REPO / "brand" / "brand.json").read_text(encoding="utf-8"))
+    ass = captions.to_ass([], brand)
+    # Faixa azul = estilo atual: fonte 64, caixa (BorderStyle 3), outline 14, base-centro, margem 340
+    assert "Style: Legenda,Poppins,64," in ass
+    assert ",3,14,0,2,72,72,340,1" in ass
+    d = banco.carregar(REPO / "banco").item("legenda", "faixa-azul")["dados"]
+    assert d == {"estilo": "faixa", "posicao_padrao": "baixo", "tamanho_padrao": "M"}
+
+
+def test_readme_documents_dot_folders_and_empty_campos():
+    t = (REPO / "banco" / "README.md").read_text(encoding="utf-8")
+    assert "ponto" in t and "[]" in t

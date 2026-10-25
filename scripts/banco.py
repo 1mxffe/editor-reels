@@ -11,6 +11,7 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -22,7 +23,10 @@ TIPOS = {"paleta": "paletas", "legenda": "legendas", "efeito": "efeitos", "mater
 PLURAL_PARA_TIPO = {v: k for k, v in TIPOS.items()}
 CAMPO_TIPOS = ("texto", "numero", "imagem", "cor", "escolha")
 MAX_BYTES = 64 * 1024
-MAX_NOME, MAX_DESCRICAO, MAX_ID, MAX_OPCOES = 60, 300, 40, 20
+MAX_NOME, MAX_DESCRICAO, MAX_ID, MAX_OPCOES, MAX_OPCAO = 60, 300, 40, 20, 60
+MAX_EFEITO_HTML = 1024 * 1024
+MAX_DURACAO = 600
+LIM_CAMPO = 1_000_000
 _SLUG = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 _CAMPO_ID = re.compile(r"[a-z][a-z0-9_]{0,39}")
 _HEX = re.compile(r"#[0-9a-fA-F]{6}")
@@ -65,14 +69,17 @@ def _texto(v, rotulo: str, maximo: int) -> str:
         raise _Invalido(f"{rotulo} precisa ser um texto não vazio")
     if len(v) > maximo:
         raise _Invalido(f"{rotulo} passa de {maximo} caracteres")
-    if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in v):
-        raise _Invalido(f"{rotulo} tem caracteres de controle")
+    if any(unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") for c in v):
+        raise _Invalido(f"{rotulo} tem caracteres de controle ou invisíveis")
     return v
 
 
-def _numero(v, rotulo: str) -> float:
-    if not common.is_num(v):
-        raise _Invalido(f"{rotulo} precisa ser um número finito")
+def _numero(v, rotulo: str, limite: float = LIM_CAMPO) -> float:
+    # a comparacao vem ANTES de math.isfinite: int gigante estoura OverflowError ali
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise _Invalido(f"{rotulo} precisa ser um número")
+    if v != v or abs(v) > limite:
+        raise _Invalido(f"{rotulo} precisa ser um número entre -{limite:g} e {limite:g}")
     return v
 
 
@@ -109,9 +116,9 @@ def _campo(c, vistos: set) -> dict:
     if tipo == "escolha":
         op = c.get("opcoes")
         if (not isinstance(op, list) or not op or len(op) > MAX_OPCOES
-                or not all(isinstance(o, str) and o.strip() for o in op)):
+                or not all(isinstance(o, str) for o in op)):
             raise _Invalido(f"campo {cid}: opcoes precisa ser uma lista de 1 a {MAX_OPCOES} textos")
-        out["opcoes"] = list(op)
+        out["opcoes"] = [_texto(o, f"opção do campo {cid}", MAX_OPCAO) for o in op]
     elif "opcoes" in c:
         raise _Invalido(f"campo {cid}: opcoes só vale para tipo escolha")
     return out
@@ -121,7 +128,7 @@ def _duracao(d) -> dict:
     if not isinstance(d, dict) or set(d) != {"padrao", "min", "max"}:
         raise _Invalido("duracao precisa ter padrao, min e max")
     for k in d:
-        _numero(d[k], f"duracao.{k}")
+        _numero(d[k], f"duracao.{k}", MAX_DURACAO)
     if not 0 < d["min"] <= d["padrao"] <= d["max"]:
         raise _Invalido("duracao incoerente (precisa 0 < min <= padrao <= max)")
     return {k: d[k] for k in ("padrao", "min", "max")}
@@ -171,7 +178,18 @@ def _carregar_item(pasta: Path, plural: str) -> dict:
     try:
         def _const(c):
             raise ValueError(f"valor {c} não é permitido")
-        m = json.loads(arq.read_bytes().decode("utf-8"), parse_constant=_const)
+
+        def _pares(pares):
+            d = {}
+            for k, v in pares:
+                if k in d:
+                    raise ValueError(f"chave repetida: {k}")
+                d[k] = v
+            return d
+        m = json.loads(arq.read_bytes().decode("utf-8"), parse_constant=_const,
+                       object_pairs_hook=_pares)
+    except RecursionError as e:
+        raise _Invalido("manifesto.json não é um JSON válido (aninhado fundo demais)") from e
     except (ValueError, OSError) as e:  # JSONDecodeError e UnicodeDecodeError sao ValueError
         raise _Invalido(f"manifesto.json não é um JSON válido ({e})") from e
     if not isinstance(m, dict):
@@ -198,8 +216,13 @@ def _carregar_item(pasta: Path, plural: str) -> dict:
     if tipo == "efeito":
         if "duracao" not in item:
             raise _Invalido("efeito precisa de duracao")
-        if not (pasta / "efeito.html").is_file():
+        html = pasta / "efeito.html"
+        if not html.exists() and not html.is_symlink():
             raise _Invalido("efeito precisa do arquivo efeito.html na pasta")
+        if not html.is_file():
+            raise _Invalido("efeito.html não é um arquivo comum")
+        if html.stat().st_size > MAX_EFEITO_HTML:
+            raise _Invalido("efeito.html é um arquivo grande demais (máximo 1 MiB)")
     item["pasta"] = pasta
     return item
 
@@ -267,8 +290,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"inválido: {e['pasta']}: {e['motivo']}", file=sys.stderr)
         return
     if not b.raiz.is_dir():
-        print(f"aviso: pasta do banco não encontrada: {b.raiz}", file=sys.stderr)
-        return
+        common.fail(f"pasta do banco não encontrada: {b.raiz}")
     for e in b.erros:
         print(f"erro: {e['pasta']}: {e['motivo']}", file=sys.stderr)
     if b.erros:
