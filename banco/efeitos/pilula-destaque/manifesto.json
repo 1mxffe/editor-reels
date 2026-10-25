@@ -1,0 +1,50 @@
+{
+  "nome": "Pílula de destaque",
+  "descricao": "Uma frase curta numa pílula de vidro que entra deslizando pelo lado.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 2.5,
+    "min": 1.5,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "texto",
+      "rotulo": "Texto curto",
+      "tipo": "texto",
+      "max": 40,
+      "obrigatorio": true
+    },
+    {
+      "id": "lado",
+      "rotulo": "Entra pela",
+      "tipo": "escolha",
+      "opcoes": [
+        "esquerda",
+        "direita"
+      ]
+    },
+    {
+      "id": "altura",
+      "rotulo": "Altura na tela",
+      "tipo": "escolha",
+      "opcoes": [
+        "em cima",
+        "no meio",
+        "embaixo"
+      ]
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      600
+    ],
+    "transicao": "suave",
+    "exemplo": {
+      "texto": "Vale também para aposentados",
+      "lado": "esquerda",
+      "altura": "embaixo"
+    }
+  }
+}

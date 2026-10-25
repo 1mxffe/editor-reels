@@ -108,31 +108,42 @@ def validar(dados, banco: bancomod.Banco | None = None) -> dict:
 def carregar(project: Path, banco: bancomod.Banco | None = None) -> dict:
     """Estilo do projeto; sem ``estilo.json`` devolve uma copia de ``DEFAULT``."""
     arq = Path(project) / ARQUIVO
-    if not arq.exists():
+    if not arq.exists() and not arq.is_symlink():  # link quebrado nao e "sem arquivo"
         return copy.deepcopy(DEFAULT)
     return ler(arq, banco)
 
 
+def ler_bruto(arq: Path) -> bytes:
+    """Bytes do ``estilo.json`` (arquivo comum, sem link, ate 16 KiB) ou ``EstiloError``."""
+    try:
+        return common.ler_limitado(Path(arq), MAX_BYTES)
+    except common.LeituraRecusada as e:
+        if "grande" in str(e):
+            raise EstiloError("estilo.json é grande demais (máximo 16 KiB)") from None
+        raise EstiloError(f"estilo.json recusado: {e}") from None
+    except FileNotFoundError:
+        raise EstiloError(f"estilo.json não encontrado: {arq}") from None
+    except OSError as e:
+        raise EstiloError(f"não foi possível ler o estilo.json ({e.strerror or e})") from None
+
+
+def decodificar(bruto: bytes):
+    """JSON de ``estilo.json``; qualquer falha (inclusive aninhamento fundo) vira EstiloError."""
+    def _const(c):
+        raise ValueError(f"valor {c} não é permitido")
+    try:
+        return json.loads(bruto.decode("utf-8"), parse_constant=_const)
+    except RecursionError:
+        raise EstiloError("estilo.json não é um JSON válido (aninhamento fundo demais)") from None
+    except (MemoryError, OverflowError):
+        raise EstiloError("estilo.json não é um JSON válido (grande ou complexo demais)") from None
+    except ValueError as e:  # JSONDecodeError e UnicodeDecodeError sao ValueError
+        raise EstiloError(f"estilo.json não é um JSON válido ({e})") from None
+
+
 def ler(arq: Path, banco: bancomod.Banco | None = None) -> dict:
     """Le e valida um ``estilo.json`` dado pelo caminho (opcao ``--estilo`` das CLIs)."""
-    arq = Path(arq)
-    if not arq.is_file():
-        raise EstiloError(f"estilo.json não encontrado: {arq}")
-    try:
-        if arq.stat().st_size > MAX_BYTES:
-            raise EstiloError("estilo.json é grande demais (máximo 16 KiB)")
-        bruto = arq.read_bytes()
-    except OSError as e:
-        raise EstiloError(f"não foi possível ler o estilo.json ({e.strerror or e})") from e
-    if len(bruto) > MAX_BYTES:
-        raise EstiloError("estilo.json é grande demais (máximo 16 KiB)")
-    try:
-        def _const(c):
-            raise ValueError(f"valor {c} não é permitido")
-        dados = json.loads(bruto.decode("utf-8"), parse_constant=_const)
-    except ValueError as e:  # JSONDecodeError e UnicodeDecodeError sao ValueError
-        raise EstiloError(f"estilo.json não é um JSON válido ({e})") from e
-    return validar(dados, banco)
+    return validar(decodificar(ler_bruto(arq)), banco)
 
 
 def salvar(project: Path, dados: dict, banco: bancomod.Banco | None = None) -> dict:

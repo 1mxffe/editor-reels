@@ -3,7 +3,8 @@
 Cada item e uma pasta com ``manifesto.json``. Item invalido nao entra em ``itens()``:
 vai para ``Banco.erros`` com o motivo em portugues. Nada e executado (so JSON).
 
-CLI: ``python3 -I scripts/banco.py listar [--json]`` | ``validar`` (exit 1 se houver erro).
+CLI: ``python3 -I scripts/banco.py listar [--json]`` | ``validar [--efeitos]`` (exit 1 se houver
+erro; ``--efeitos`` tambem abre cada efeito no navegador e recusa o que nao desenha).
 """
 from __future__ import annotations
 
@@ -31,7 +32,10 @@ _SLUG = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")
 _CAMPO_ID = re.compile(r"[a-z][a-z0-9_]{0,39}")
 _HEX = re.compile(r"#[0-9a-fA-F]{6}")
 _TOPO = {"nome", "descricao", "tipo", "duracao", "campos", "dados"}
-_CAMPO_CHAVES = {"id", "rotulo", "tipo", "max", "min", "opcoes", "obrigatorio"}
+_CAMPO_CHAVES = {"id", "rotulo", "tipo", "max", "min", "opcoes", "obrigatorio", "itens", "inteiro"}
+MAX_ITENS = 20
+PESOS = (400, 500, 600, 700, 800)
+TRANSICOES = ("suave", "corte")
 _PALETA = ("fundo", "texto", "destaque", "apoio")
 _LEGENDA = {"estilo": ("faixa", "pilula", "duas-linhas", "pequena"),
             "posicao_padrao": ("baixo", "meio"),
@@ -121,6 +125,23 @@ def _campo(c, vistos: set) -> dict:
         out["opcoes"] = [_texto(o, f"opção do campo {cid}", MAX_OPCAO) for o in op]
     elif "opcoes" in c:
         raise _Invalido(f"campo {cid}: opcoes só vale para tipo escolha")
+    if "inteiro" in c:
+        if tipo != "numero" or not isinstance(c["inteiro"], bool):
+            raise _Invalido(f"campo {cid}: inteiro só vale para número (verdadeiro ou falso)")
+        out["inteiro"] = c["inteiro"]
+    if "itens" in c:  # campo lista: de itens.min a itens.max valores do mesmo tipo
+        it = c["itens"]
+        if tipo not in ("texto", "numero", "imagem"):
+            raise _Invalido(f"campo {cid}: itens (lista) só vale para texto, número e imagem")
+        if not isinstance(it, dict) or set(it) != {"min", "max"}:
+            raise _Invalido(f"campo {cid}: itens precisa ter min e max (quantidade da lista)")
+        for k in ("min", "max"):
+            v = it[k]
+            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= MAX_ITENS:
+                raise _Invalido(f"campo {cid}: itens.{k} precisa ser um inteiro de 0 a {MAX_ITENS}")
+        if it["min"] > it["max"] or it["max"] == 0:
+            raise _Invalido(f"campo {cid}: itens incoerente (precisa 0 <= min <= max e max >= 1)")
+        out["itens"] = {"min": it["min"], "max": it["max"]}
     return out
 
 
@@ -149,7 +170,31 @@ def _dados(tipo: str, d) -> dict:
         for k, ok in _LEGENDA.items():
             if d[k] not in ok:
                 raise _Invalido(f"{k} inválido: {d[k]!r} (use {', '.join(ok)})")
+    elif tipo == "efeito":
+        _dados_efeito(d)
     return dict(d)
+
+
+def _dados_efeito(d: dict) -> None:
+    """``dados`` de efeito: livres, mas estas chaves (quando presentes) sao conferidas."""
+    if d.get("area_segura") is not True:
+        raise _Invalido("dados do efeito precisa de \"area_segura\": true (o efeito promete não "
+                        "cobrir a faixa da legenda nem o topo da tela)")
+    if "pesos" in d:
+        p = d["pesos"]
+        if (not isinstance(p, list) or not p or len(p) > len(PESOS)
+                or any(isinstance(x, bool) or x not in PESOS for x in p)):
+            raise _Invalido(f"dados.pesos precisa ser uma lista com pesos da fonte entre "
+                            f"{', '.join(map(str, PESOS))}")
+    if "transicao" in d and d["transicao"] not in TRANSICOES:
+        raise _Invalido(f"dados.transicao inválida: {d['transicao']!r} (use {', '.join(TRANSICOES)})")
+    if "exemplo" in d and not isinstance(d["exemplo"], dict):
+        raise _Invalido("dados.exemplo precisa ser um objeto (campos de exemplo)")
+    if "mesmo_tamanho" in d:
+        g = d["mesmo_tamanho"]
+        if not (isinstance(g, list) and all(isinstance(x, list) and len(x) >= 2
+                                            and all(isinstance(i, str) for i in x) for x in g)):
+            raise _Invalido("dados.mesmo_tamanho precisa ser uma lista de grupos de ids de campo")
 
 
 def _sem_links(pasta: Path) -> None:
@@ -214,6 +259,11 @@ def _carregar_item(pasta: Path, plural: str) -> dict:
         item["duracao"] = _duracao(m["duracao"])
     item["dados"] = _dados(tipo, m.get("dados"))
     if tipo == "efeito":
+        listas = {c["id"] for c in item["campos"] if "itens" in c}
+        for grupo in item["dados"].get("mesmo_tamanho", []):
+            fora = [i for i in grupo if i not in listas]
+            if fora:
+                raise _Invalido(f"dados.mesmo_tamanho cita campos que não são listas: {', '.join(fora)}")
         if "duracao" not in item:
             raise _Invalido("efeito precisa de duracao")
         html = pasta / "efeito.html"
@@ -227,8 +277,41 @@ def _carregar_item(pasta: Path, plural: str) -> dict:
     return item
 
 
-def carregar(raiz: Path = REPO / "banco") -> Banco:
-    raiz = Path(raiz)
+def _verificar_todos(itens: list[dict]) -> dict[str, str | None]:
+    """Abre cada ``efeito.html`` no Chromium (um navegador para todos) com os campos de
+    exemplo: ``{id: None}`` se montou e desenhou, senao ``{id: motivo}``. Caro (segundos):
+    so roda quando pedido (``carregar(..., verificar_efeitos=True)`` e ``validar --efeitos``)."""
+    import graphics  # import tardio: graphics usa o banco
+    return graphics.verificar_efeitos(itens)
+
+
+def verificar_efeito(item: dict) -> str | None:
+    """Motivo pelo qual o efeito nao funciona (``setup``/``setTime`` lancou, pagina sem CSP
+    sem rede...), ou None se ele desenha."""
+    return _verificar_todos([item])[item["id"]]
+
+
+verificar_efeitos = _verificar_todos
+
+
+def carregar(raiz: Path = REPO / "banco", *, verificar_efeitos: bool = False) -> Banco:
+    """Carrega o banco (so JSON e arquivos). Com ``verificar_efeitos``, cada efeito tambem e
+    aberto no navegador e o que falhar sai de ``itens()`` e vai para ``erros``."""
+    banco = _carregar(Path(raiz))
+    if verificar_efeitos and banco.itens("efeito"):
+        motivos = _verificar_todos(banco.itens("efeito"))
+        bons = []
+        for it in banco._itens["efeito"]:
+            if motivos.get(it["id"]):
+                banco.erros.append({"pasta": str(it["pasta"].relative_to(banco.raiz)),
+                                    "motivo": f"o efeito não desenha: {motivos[it['id']]}"})
+            else:
+                bons.append(it)
+        banco._itens["efeito"] = bons
+    return banco
+
+
+def _carregar(raiz: Path) -> Banco:
     itens: dict[str, list[dict]] = {t: [] for t in TIPOS}
     erros: list[dict] = []
 
@@ -275,10 +358,18 @@ def main(argv: list[str] | None = None) -> None:
     pl = sub.add_parser("listar", help="lista os itens válidos")
     pl.add_argument("--json", action="store_true")
     pv = sub.add_parser("validar", help="valida o banco; sai com 1 se houver item inválido")
+    pv.add_argument("--efeitos", action="store_true",
+                    help="também abre cada efeito no navegador (mais lento)")
     for s in (pl, pv):
         s.add_argument("--raiz", type=Path, default=REPO / "banco", help=argparse.SUPPRESS)
     a = p.parse_args(argv)
-    b = carregar(a.raiz)
+    if a.cmd == "validar" and a.efeitos:
+        try:
+            b = carregar(a.raiz, verificar_efeitos=True)
+        except Exception as e:  # navegador ausente etc.: mensagem, nunca traceback
+            common.fail(f"não foi possível verificar os efeitos: {e}")
+    else:
+        b = carregar(a.raiz)
     if a.cmd == "listar":
         if a.json:
             print(json.dumps(_para_json(b), ensure_ascii=False, indent=2))

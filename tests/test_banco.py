@@ -142,7 +142,7 @@ def test_field_types_validation(tmp_path):
 
 
 def test_duracao_and_effect_rules(tmp_path):
-    ef = {"nome": "Efeito", "descricao": "Efeito.", "tipo": "efeito", "campos": [], "dados": {},
+    ef = {"nome": "Efeito", "descricao": "Efeito.", "tipo": "efeito", "campos": [], "dados": {"area_segura": True},
           "duracao": {"padrao": 3, "min": 1, "max": 6}}
     d = escreve(tmp_path, "efeitos", "bom", ef)
     (d / "efeito.html").write_text("<html></html>", encoding="utf-8")
@@ -243,8 +243,8 @@ def test_cli_listar_json_valid_and_stable(tmp_path):
     assert data["erros"] == []
     chaves = [(i["tipo"], i["id"]) for i in data["itens"]]
     assert chaves == sorted(chaves, key=lambda k: (["paleta", "legenda", "efeito", "material"].index(k[0]), k[1]))
-    assert len(chaves) == 8
-    assert all(i["pasta"] == f"{ {'paleta': 'paletas', 'legenda': 'legendas'}[i['tipo']] }/{i['id']}"
+    assert len(chaves) == 18  # 4 paletas, 4 legendas, 10 efeitos
+    assert all(i["pasta"] == f"{ {'paleta': 'paletas', 'legenda': 'legendas', 'efeito': 'efeitos'}[i['tipo']] }/{i['id']}"
                for i in data["itens"])
     texto = run_cli("listar")
     assert texto.returncode == 0 and "faixa-azul" in texto.stdout and "Faixa azul" in texto.stdout
@@ -349,7 +349,7 @@ def test_accented_portuguese_text_still_ok(tmp_path):
 def test_ceilings(tmp_path):
     def num(**kw):
         return manifesto(campos=[{"id": "a", "rotulo": "A", "tipo": "numero", **kw}])
-    ef = {"nome": "E", "descricao": "E.", "tipo": "efeito", "campos": [], "dados": {}}
+    ef = {"nome": "E", "descricao": "E.", "tipo": "efeito", "campos": [], "dados": {"area_segura": True}}
     casos = {
         "dur-max-601": {**ef, "duracao": {"padrao": 3, "min": 1, "max": 601}},
         "campo-max-grande": num(max=1000001),
@@ -372,7 +372,7 @@ def test_ceilings(tmp_path):
 
 
 def test_efeito_html_size_and_special_files(tmp_path):
-    ef = {"nome": "E", "descricao": "E.", "tipo": "efeito", "campos": [], "dados": {},
+    ef = {"nome": "E", "descricao": "E.", "tipo": "efeito", "campos": [], "dados": {"area_segura": True},
           "duracao": {"padrao": 3, "min": 1, "max": 6}}
     d = escreve(tmp_path, "efeitos", "grande", ef)
     (d / "efeito.html").write_bytes(b"x" * (1024 * 1024 + 1))

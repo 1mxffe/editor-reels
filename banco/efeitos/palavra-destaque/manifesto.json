@@ -1,0 +1,29 @@
+{
+  "nome": "Palavra em destaque",
+  "descricao": "Uma palavra enorme ocupando a tela por 1 a 2 segundos, com corte seco. A faixa da legenda continua livre.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 1.5,
+    "min": 0.5,
+    "max": 2
+  },
+  "campos": [
+    {
+      "id": "palavra",
+      "rotulo": "Palavra ou expressão curta",
+      "tipo": "texto",
+      "max": 24,
+      "obrigatorio": true
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      800
+    ],
+    "transicao": "corte",
+    "exemplo": {
+      "palavra": "ISENTO"
+    }
+  }
+}

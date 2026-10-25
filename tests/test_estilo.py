@@ -189,3 +189,60 @@ def test_cli_graphics_e_capa_estilo_invalido_falham_claro(tmp_path):
         assert proc.stderr.startswith("erro:") and "arco-iris" in proc.stderr
         assert "Traceback" not in proc.stderr
     assert not (tmp_path / "o.webm").exists() and not (tmp_path / "c.png").exists()
+
+
+# ---- fix round 1: leitura protegida ----
+import os  # noqa: E402
+
+
+def test_estilo_profundo_vira_estiloerror(tmp_path):
+    for i, texto in enumerate(("[" * 16000, '{"a":' * 5000, "[" * 900 + "]" * 900)):
+        p = _proj(tmp_path / str(i), texto=texto)
+        with pytest.raises(estilo.EstiloError, match="estilo.json"):
+            estilo.carregar(p)
+        with pytest.raises(estilo.EstiloError):
+            estilo.ler(p / "estilo.json")
+
+
+def test_estilo_fifo_symlink_e_enorme(tmp_path):
+    p = _proj(tmp_path / "fifo")
+    os.mkfifo(p / "estilo.json")
+    with pytest.raises(estilo.EstiloError):
+        estilo.carregar(p)  # nao trava
+    p = _proj(tmp_path / "link")
+    alvo = tmp_path / "alvo.json"
+    alvo.write_text(json.dumps(estilo.DEFAULT), "utf-8")
+    (p / "estilo.json").symlink_to(alvo)
+    with pytest.raises(estilo.EstiloError, match="link"):
+        estilo.carregar(p)
+    p = _proj(tmp_path / "quebrado")
+    (p / "estilo.json").symlink_to(tmp_path / "nao-existe.json")
+    with pytest.raises(estilo.EstiloError):
+        estilo.carregar(p)  # link quebrado nao vira "sem arquivo"
+    p = _proj(tmp_path / "grande", texto=" " * (5 * 1024 * 1024))
+    with pytest.raises(estilo.EstiloError, match="16 KiB"):
+        estilo.carregar(p)
+
+
+def test_cli_estilo_profundo_sem_traceback(tmp_path):
+    import subprocess
+    import sys
+    bad = tmp_path / "estilo.json"
+    bad.write_text("[" * 16000, "utf-8")
+    marca = tmp_path / "brand.json"
+    brand.write_seed(marca)
+    from PIL import Image
+    foto = tmp_path / "foto.png"
+    Image.new("RGB", (1080, 1920)).save(foto)
+    proc = subprocess.run([sys.executable, "-I", str(REPO / "scripts" / "cover_compose.py"), str(foto),
+                           str(marca), str(tmp_path / "c.png"), "--hook", "3 MITOS", "--estilo", str(bad)],
+                          capture_output=True, text=True)
+    assert proc.returncode == 1 and proc.stderr.startswith("erro:") and "Traceback" not in proc.stderr
+
+
+def test_paleta_marca_igual_ao_brand_json():
+    """estilo.json com "paleta": "marca" tem de dar as mesmas cores de "sem arquivo"."""
+    pal = banco.carregar().item("paleta", "marca")["dados"]
+    b = brand.load(REPO / "brand" / "brand.json")
+    assert {campo: pal[k] for k, campo in estilo.PALETA_PARA_BRAND.items()} == \
+        {campo: b[campo] for campo in estilo.PALETA_PARA_BRAND.values()}

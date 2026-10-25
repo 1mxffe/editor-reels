@@ -224,8 +224,10 @@ def render(project: Path, quality: Literal["preview", "final"],
         raise ValueError(f"qualidade invalida: {quality!r} (use preview ou final)")
     size = SIZES[quality]
 
-    # (1) entradas
+    # (1) entradas (estilo.json primeiro: estilo invalido e avisado antes de tudo)
     entrada = _find_entrada(project)
+    arq_estilo = project / estilomod.ARQUIVO
+    est = estilomod.carregar(project) if arq_estilo.exists() or arq_estilo.is_symlink() else None
     duration, words, cuts = _load_inputs(project)
     # (2)-(3) linha do tempo pos-corte e frases
     keep = cut.keep_segments(duration, cuts)
@@ -240,9 +242,7 @@ def render(project: Path, quality: Literal["preview", "final"],
     # estilo.json do projeto (opcional): paleta/fonte viram um brand efetivo (copia;
     # brand.json intacto) e a legenda ganha estilo/posicao/tamanho. Sem o arquivo,
     # nada muda (estilo=None: o .ass e byte a byte o de sempre).
-    est = None
-    if (project / estilomod.ARQUIVO).exists():
-        est = estilomod.carregar(project)
+    if est is not None:
         brand = estilomod.aplicar_marca(brand, est)
     try:
         ass_text = captions.to_ass(phrases, brand, size=size, estilo=est)

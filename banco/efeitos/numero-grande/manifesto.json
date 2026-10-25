@@ -1,0 +1,37 @@
+{
+  "nome": "Número grande",
+  "descricao": "Um número ou palavra-gancho enorme (\"60 dias\", \"3 mitos\") com uma frase curta embaixo. Entra crescendo de leve.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 3,
+    "min": 1.5,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "destaque",
+      "rotulo": "Número ou palavra grande",
+      "tipo": "texto",
+      "max": 14,
+      "obrigatorio": true
+    },
+    {
+      "id": "frase",
+      "rotulo": "Frase de apoio",
+      "tipo": "texto",
+      "max": 70
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      600,
+      800
+    ],
+    "transicao": "suave",
+    "exemplo": {
+      "destaque": "60 dias",
+      "frase": "é o prazo para pedir a revisão do benefício"
+    }
+  }
+}

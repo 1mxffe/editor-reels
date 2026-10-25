@@ -1,0 +1,187 @@
+<!doctype html>
+<!--
+  Selos: 2 a 4 etiquetas que entram em sequencia.
+  Efeito do banco (banco/efeitos/). Pagina autocontida e sem rede: o driver
+  (scripts/js/render_card.mjs) chama window.setup(dados) e depois window.setTime(t)
+  a cada quadro. Texto entra so por textContent; imagem so como data:/blob:.
+  Area util: y entre 250 e 1580 (tela 1080x1920); a faixa da legenda fica livre.
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:">
+<title>Selos</title>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  #stage { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; transform-origin: 0 0; }
+  .cheia { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; opacity: 0; }
+  .vidro {
+    box-sizing: border-box; border-radius: 28px;
+    background: linear-gradient(160deg, var(--glass-hi), var(--glass-lo));
+    border: 2px solid var(--edge); color: var(--fg);
+  }
+  .sombra { box-shadow: 0 10px 24px rgba(0, 0, 0, 0.20); }
+  .t-titulo { font-family: var(--font-title); }
+  .t-corpo { font-family: var(--font-body); }
+
+  .lista { position: absolute; left: 72px; right: 72px; top: 360px; display: flex; flex-direction: column;
+           align-items: flex-start; gap: 24px; }
+  .selo { display: flex; align-items: center; gap: 22px; max-width: 936px; box-sizing: border-box;
+          padding: 24px 40px 24px 28px; border-radius: 999px; border-color: var(--accent-edge); }
+  .selo svg { flex: none; width: 46px; height: 46px; }
+  .selo span { font-weight: 600; font-size: 48px; line-height: 1.2; white-space: nowrap; color: var(--fg); }
+</style>
+</head>
+<body>
+<div id="stage"><div id="efeito" class="cheia" data-moldura><div class="lista" id="lista"></div></div></div>
+<script>
+'use strict';
+
+// Base comum dos efeitos (copiada em cada efeito.html: a pagina e autocontida).
+// O driver chama window.setup(dados) uma vez e window.setTime(t) a cada quadro.
+// Nada depende do relogio nem de sorteio: o quadro em t e sempre o mesmo.
+const FX = (() => {
+  function bezier(x1, y1, x2, y2) {
+    const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+    const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+    const sx = (u) => ((ax * u + bx) * u + cx) * u;
+    const sy = (u) => ((ay * u + by) * u + cy) * u;
+    const dx = (u) => (3 * ax * u + 2 * bx) * u + cx;
+    return (x) => {
+      if (x <= 0) return 0;
+      if (x >= 1) return 1;
+      let u = x;
+      for (let i = 0; i < 8; i++) {
+        const e = sx(u) - x;
+        if (Math.abs(e) < 1e-7) break;
+        const d = dx(u);
+        if (Math.abs(d) < 1e-6) break;
+        u -= e / d;
+      }
+      let lo = 0, hi = 1;
+      if (Math.abs(sx(u) - x) > 1e-6) {
+        u = x;
+        for (let i = 0; i < 40; i++) { if (sx(u) < x) lo = u; else hi = u; u = (lo + hi) / 2; }
+      }
+      return sy(u);
+    };
+  }
+  const easeIn = bezier(0.16, 1, 0.3, 1);   // entrada: ease-out suave (350 ms)
+  const easeOut = bezier(0.4, 0, 0.2, 1);   // saida: padrao calmo (300 ms)
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  function rgb(hex) {
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) throw new Error('cor invalida: ' + hex);
+    return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
+  }
+  const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+  const family = (name) => {
+    const names = [name, 'Poppins'].filter((n, i, all) => n && all.indexOf(n) === i);
+    return names.map((n) => '"' + String(n).replace(/["\\]/g, '') + '"').join(', ') + ', sans-serif';
+  };
+  let D = null;
+  async function base(d) {
+    D = d;
+    document.getElementById('stage').style.transform = `scale(${d.scale})`;
+    const root = document.documentElement.style;
+    const bg = rgb(d.colors.bg), fg = rgb(d.colors.fg), ac = rgb(d.colors.accent);
+    root.setProperty('--bg', d.colors.bg);
+    root.setProperty('--fg', d.colors.fg);
+    root.setProperty('--accent', d.colors.accent);
+    root.setProperty('--muted', d.colors.muted);
+    root.setProperty('--fg-soft', rgba(fg, 0.88));
+    root.setProperty('--fg-dim', rgba(fg, 0.62));
+    root.setProperty('--glass-hi', rgba(bg, 0.86));
+    root.setProperty('--glass-lo', rgba(bg, 0.93));
+    root.setProperty('--solid-hi', rgba(bg, 0.95));
+    root.setProperty('--solid-lo', rgba(bg, 0.98));
+    root.setProperty('--edge', rgba(fg, 0.18));
+    root.setProperty('--accent-edge', rgba(ac, 0.55));
+    root.setProperty('--under', rgba(bg, 0.55));
+    root.setProperty('--font-title', family(d.fonts.title));
+    root.setProperty('--font-body', family(d.fonts.body));
+    for (const f of d.fontes || []) {
+      try { document.fonts.add(await new FontFace('Poppins', `url("${f.url}")`, { weight: String(f.weight) }).load()); }
+      catch (e) { /* fonte ausente: fica a da maquina */ }
+    }
+    await document.fonts.ready;
+  }
+  // Entrada (350 ms) e saida (300 ms) do efeito inteiro; "corte" = corte seco.
+  function env(t) {
+    if (D.transicao === 'corte') return { op: 1, p: 1, q: 0 };
+    const end = D.lastFrameTime;
+    let p = 1, q = 0;
+    if (t < D.enter) p = easeIn(clamp(t / D.enter, 0, 1));
+    if (t > end - D.exit) q = easeOut(clamp((t - (end - D.exit)) / D.exit, 0, 1));
+    return { op: clamp(Math.min(p, 1 - q), 0, 1), p, q };
+  }
+  const prog = (t, a, len) => easeIn(clamp((t - a) / len, 0, 1));
+  function texto(el, s) {
+    el.textContent = s == null ? '' : String(s);
+    el.setAttribute('data-texto', '');
+    return el;
+  }
+  function el(tag, cls, pai) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (pai) pai.appendChild(e);
+    return e;
+  }
+  function svg(tag, attrs, pai) {
+    const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, String(v));
+    if (pai) pai.appendChild(e);
+    return e;
+  }
+  // Reduz a fonte ate o texto caber na largura (uma linha); devolve o tamanho final.
+  function fit(e, max, min, largura) {
+    let s = max;
+    e.style.fontSize = s + 'px';
+    while (s > min && e.scrollWidth > largura) { s -= 2; e.style.fontSize = s + 'px'; }
+    return s;
+  }
+  async function img(src, pai, cls) {
+    const s = String(src || '');
+    if (!/^(data:image\/|blob:)/.test(s)) throw new Error('imagem precisa vir como data: ou blob:');
+    const i = el('img', cls, pai);
+    i.alt = '';
+    i.src = s;
+    await i.decode();
+    return i;
+  }
+  const f = (x, n = 3) => Number(x).toFixed(n);
+  return { easeIn, easeOut, clamp, rgb, rgba, base, env, prog, texto, el, svg, fit, img, f,
+           get D() { return D; } };
+})();
+
+const PASSO = 0.12;
+window.setup = async (d) => {
+  await FX.base(d);
+  const lista = document.getElementById('lista');
+  for (const s of (d.campos || {}).selos || []) {
+    const selo = FX.el('div', 'selo vidro sombra', lista);
+    const ic = FX.svg('svg', { viewBox: '0 0 46 46', 'aria-hidden': 'true' }, selo);
+    FX.svg('circle', { cx: 23, cy: 23, r: 21, fill: d.colors.accent }, ic);
+    FX.svg('path', { d: 'M13 24 l7 7 l13 -15', fill: 'none', stroke: d.colors.bg, 'stroke-width': 5,
+                     'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, ic);
+    FX.fit(FX.texto(FX.el('span', 't-titulo', selo), s), 48, 32, 936 - 28 - 40 - 46 - 22);
+  }
+  return true;
+};
+
+window.setTime = (t) => {
+  const e = FX.env(t);
+  const partes = [FX.f(e.op, 4)];
+  document.getElementById('efeito').style.opacity = FX.f(e.op, 4);
+  document.querySelectorAll('.selo').forEach((s, i) => {
+    const p = FX.prog(t, i * PASSO, 0.35);
+    const dx = -40 * (1 - p), dy = -16 * e.q;
+    s.style.opacity = FX.f(p, 4);
+    s.style.transform = `translate(${FX.f(dx, 2)}px, ${FX.f(dy, 2)}px)`;
+    partes.push(FX.f(p, 4), FX.f(dy, 2));
+  });
+  return partes.join('|');
+};
+</script>
+</body>
+</html>

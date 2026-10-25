@@ -229,3 +229,35 @@ def test_preview_desatualizado_quando_estilo_muda(projs):
     (d / "estilo.json").write_text(json.dumps({"paleta": "grafite"}), "utf-8")
     st = projs.state(p["slug"])
     assert st["preview_desatualizado"] is True and st["preview_so_graficos"] is False
+
+
+@pytest.mark.parametrize("caso", ["profundo", "fifo", "enorme", "symlink", "link_quebrado", "pasta"])
+def test_impressao_e_state_toleram_estilo_ruim(projs, tmp_path, caso):
+    import projects as projects_mod
+    p = projs.create("Ruim " + caso)
+    d = projs.path(p["slug"])
+    (d / "cortes.json").write_text(json.dumps({"cuts": []}), "utf-8")
+    sem = projects_mod.impressao(d)
+    arq = d / "estilo.json"
+    if caso == "profundo":
+        arq.write_text("[" * 16000, "utf-8")
+    elif caso == "fifo":
+        os.mkfifo(arq)
+    elif caso == "enorme":
+        arq.write_text(" " * (5 * 1024 * 1024), "utf-8")
+    elif caso == "symlink":
+        alvo = tmp_path / "fora.json"
+        alvo.write_text(json.dumps({"paleta": "grafite"}), "utf-8")
+        arq.symlink_to(alvo)
+    elif caso == "link_quebrado":
+        arq.symlink_to(tmp_path / "nao-existe.json")
+    else:
+        arq.mkdir()
+    um = projects_mod.impressao(d)
+    assert um == projects_mod.impressao(d)  # estavel
+    assert um != sem  # estilo ruim tambem invalida o video
+    assert projects_mod.impressao(d, com_graficos=False, com_estilo=False) == \
+        projects_mod.impressao(d, com_graficos=False, com_estilo=False)
+    st = projs.state(p["slug"])
+    assert st["slug"] == p["slug"]
+    assert any(x["slug"] == p["slug"] for x in projs.list())

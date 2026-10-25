@@ -1,0 +1,80 @@
+{
+  "nome": "Calendário",
+  "descricao": "Folha de calendário do mês com os dias importantes marcados um a um.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 3.5,
+    "min": 2.5,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "mes",
+      "rotulo": "Mês",
+      "tipo": "escolha",
+      "opcoes": [
+        "janeiro",
+        "fevereiro",
+        "março",
+        "abril",
+        "maio",
+        "junho",
+        "julho",
+        "agosto",
+        "setembro",
+        "outubro",
+        "novembro",
+        "dezembro"
+      ],
+      "obrigatorio": true
+    },
+    {
+      "id": "ano",
+      "rotulo": "Ano",
+      "tipo": "numero",
+      "min": 1900,
+      "max": 2100,
+      "inteiro": true,
+      "obrigatorio": true
+    },
+    {
+      "id": "dias",
+      "rotulo": "Dias marcados (1 a 10)",
+      "tipo": "numero",
+      "min": 1,
+      "max": 31,
+      "inteiro": true,
+      "obrigatorio": true,
+      "itens": {
+        "min": 1,
+        "max": 10
+      }
+    },
+    {
+      "id": "legenda",
+      "rotulo": "Legenda",
+      "tipo": "texto",
+      "max": 50
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      400,
+      500,
+      700,
+      800
+    ],
+    "transicao": "suave",
+    "exemplo": {
+      "mes": "março",
+      "ano": 2026,
+      "dias": [
+        2,
+        16,
+        31
+      ],
+      "legenda": "Prazos de entrega da declaração"
+    }
+  }
+}

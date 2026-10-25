@@ -1,0 +1,38 @@
+{
+  "nome": "Polaroides",
+  "descricao": "De 1 a 3 fotos em moldura branca que caem e giram de leve. Use fotos dos materiais ou quadros do próprio vídeo.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 3,
+    "min": 2,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "imagens",
+      "rotulo": "Fotos (1 a 3; materiais/... ou quadro:<segundo>)",
+      "tipo": "imagem",
+      "obrigatorio": true,
+      "itens": {
+        "min": 1,
+        "max": 3
+      }
+    },
+    {
+      "id": "legenda",
+      "rotulo": "Legenda na foto da frente",
+      "tipo": "texto",
+      "max": 32
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      500
+    ],
+    "transicao": "suave",
+    "exemplo": {
+      "legenda": "Antes e depois"
+    }
+  }
+}

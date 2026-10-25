@@ -1,21 +1,25 @@
-"""Graficos animados do Reel: cards (titulo + corpo opcional + imagem de apoio).
+"""Graficos animados do Reel: efeitos do banco (``banco/efeitos/<id>/``) e o card antigo.
 
-Cada card e uma pagina HTML/CSS (``scripts/js/card.html``) desenhada pelo
-Chromium headless quadro a quadro (``scripts/js/render_card.mjs``, Playwright
-para Node), com fundo transparente; o ffmpeg junta os PNG num WebM VP9 com
-alfa (``yuva420p``). Nada de rede, nada de animacao no relogio: o quadro i e o
-estado do card em ``t = i / 30``. Sem dependencia do HyperFrames.
+Cada efeito e uma pagina ``efeito.html`` do banco, desenhada pelo Chromium headless
+quadro a quadro (``scripts/js/render_card.mjs``, Playwright para Node), com fundo
+transparente; o ffmpeg junta os PNG num WebM VP9 com alfa (``yuva420p``). Nada de rede,
+nada de animacao no relogio: o quadro i e o estado do efeito em ``t = i / 30``.
 
-Spec de um card (``graficos.json`` do projeto: ``{"cards": [spec, ...]}``)::
+Item de ``graficos.json`` (``{"cards": [item, ...]}``), dois formatos::
 
+    {"id": "k1", "efeito": "numero-grande", "campos": {"destaque": "60 dias", ...},
+     "at": 2.0, "dur": 3.0}
     {"id": "k1", "title": "...", "body": "..." | null, "at": 2.0, "dur": 3.0,
-     "material": "materiais/foto.png" | null}
+     "material": "materiais/foto.png" | null}          (antigo = efeito "card-destaque")
 
-``at`` e o instante na linha do tempo CORTADA (a do preview/final). Limites:
-titulo 1-60 caracteres, corpo ate 140, ``dur`` de 1 a 6 s, ``at`` >= 0; o
-material e uma imagem (png/jpg/jpeg/webp/svg) dentro da pasta do projeto.
-Ordem fixa em ``render_card``: validacao (antes de qualquer navegador, ffmpeg ou
-arquivo) -> navegador -> ffmpeg -> temporario unico renomeado.
+``campos`` e validado contra o ``manifesto.json`` do efeito (tipos, ``max``/``min``,
+obrigatorios, listas, imagens so dentro da pasta do projeto, texto sem caracteres de
+controle); efeito desconhecido e erro. Imagem pode ser ``"quadro:<segundo>"``: um quadro
+do proprio video do projeto (segundo na linha do tempo CORTADA), extraido pelo ffmpeg.
+``at`` e o instante na linha do tempo CORTADA (a do preview/final); ``dur`` fica entre
+``duracao.min`` e ``duracao.max`` do efeito (card antigo: titulo 1-60 caracteres, corpo
+ate 140, ``dur`` de 1 a 6 s). Ordem fixa em ``render_card``: validacao (antes de qualquer
+navegador, ffmpeg ou arquivo) -> navegador -> ffmpeg -> temporario unico renomeado.
 
 Uso: python3 -I scripts/graphics.py <spec.json> <brand.json> <saida.webm>
          [--project <pasta>] [--size preview|final] [--estilo <estilo.json>]
@@ -40,13 +44,18 @@ import shutil  # noqa: E402
 import subprocess  # noqa: E402
 import tempfile  # noqa: E402
 
+import unicodedata  # noqa: E402
+
+import banco as bancomod  # noqa: E402
 import brand as brandmod  # noqa: E402
 import common  # noqa: E402
+import cut as cutmod  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-TEMPLATE = HERE / "js" / "card.html"
 DRIVER = HERE / "js" / "render_card.mjs"
+BANCO_RAIZ = REPO / "banco"
+EFEITO_LEGADO = "card-destaque"   # o card antigo {title, body, material}
 FONTS_DIR = REPO / "assets" / "fonts"
 
 CANVAS = (1080, 1920)
@@ -63,7 +72,14 @@ MATERIAL_MAX_BYTES = 20 * 1024 * 1024
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                ".webp": "image/webp", ".svg": "image/svg+xml"}
 SPEC_KEYS = {"id", "title", "body", "at", "dur", "material"}
+EFEITO_KEYS = {"id", "efeito", "campos", "at", "dur"}
+TEXTO_MAX = 200       # campo de texto sem "max" no manifesto
+QUADROS_MAX = 6       # quadros do video extraidos por efeito
+QUADRO_LARGURA = 720  # px do quadro extraido (largura)
+PESOS_PADRAO = (400, 600, 800)
 _HEX = re.compile(r"#[0-9a-fA-F]{6}")
+_QUADRO = re.compile(r"quadro:(\d{1,5}(?:\.\d{1,3})?)")
+_CSP = re.compile(r"<meta\s+http-equiv=\"Content-Security-Policy\"\s+content=\"([^\"]*)\"", re.I)
 
 
 class GraphicsError(ValueError):
@@ -120,9 +136,16 @@ def _material(value, project: Path | None, where: str) -> Path | None:
 
 
 def validate(spec, project: Path | None = None, where: str = "card") -> dict:
-    """Spec normalizada (textos sem espacos nas pontas, numeros float, material Path)."""
+    """Spec normalizada (textos sem espacos nas pontas, numeros float, imagens Path).
+
+    Sempre traz ``efeito`` e ``campos`` (o card antigo vira ``card-destaque``) e tambem
+    ``title``/``body``/``material`` (rotulo para a revisao; no card antigo, os de sempre).
+    """
     if not isinstance(spec, dict):
-        raise GraphicsError(f"{where}: esperado objeto {{id, title, body, at, dur, material}}")
+        raise GraphicsError(f"{where}: esperado objeto {{id, efeito, campos, at, dur}} "
+                            "ou {id, title, body, at, dur, material}")
+    if "efeito" in spec or "campos" in spec:
+        return _validate_efeito(spec, project, where)
     unknown = set(spec) - SPEC_KEYS
     if unknown:
         raise GraphicsError(f"{where}: chaves desconhecidas: {', '.join(sorted(map(str, unknown)))}")
@@ -134,12 +157,16 @@ def validate(spec, project: Path | None = None, where: str = "card") -> dict:
     if not isinstance(title, str) or not title.strip():
         raise GraphicsError(f"{where}: título obrigatório")
     title = title.strip()
+    if not _sem_controle(title):
+        raise GraphicsError(f"{where}: título com caracteres de controle ou invisíveis")
     if len(title) > TITLE_MAX:
         raise GraphicsError(f"{where}: título com {len(title)} caracteres (máximo {TITLE_MAX})")
     body = spec.get("body")
     if body is not None and not isinstance(body, str):
         raise GraphicsError(f"{where}: body deve ser texto ou null")
     body = (body or "").strip() or None
+    if body is not None and not _sem_controle(body):
+        raise GraphicsError(f"{where}: corpo com caracteres de controle ou invisíveis")
     if body is not None and len(body) > BODY_MAX:
         raise GraphicsError(f"{where}: corpo com {len(body)} caracteres (máximo {BODY_MAX})")
     at, dur = spec.get("at"), spec.get("dur")
@@ -147,8 +174,206 @@ def validate(spec, project: Path | None = None, where: str = "card") -> dict:
         raise GraphicsError(f"{where}: at deve ser número >= 0 (segundos do vídeo cortado)")
     if not (common.is_num(dur) and DUR_MIN <= dur <= DUR_MAX):
         raise GraphicsError(f"{where}: dur deve ser número entre {DUR_MIN:g} e {DUR_MAX:g} s")
+    material = _material(spec.get("material"), project, where)
     return {"id": cid, "title": title, "body": body, "at": float(at), "dur": float(dur),
-            "material": _material(spec.get("material"), project, where)}
+            "material": material, "efeito": EFEITO_LEGADO,
+            "campos": {"titulo": title, "texto": body, "imagem": material}}
+
+
+# ---------------------------------------------------------------- efeitos do banco
+
+def efeitos(raiz: Path | None = None) -> dict[str, dict]:
+    """Efeitos validos do banco (``{id: item}``), so JSON: nao abre navegador."""
+    b = bancomod.carregar(BANCO_RAIZ if raiz is None else Path(raiz))
+    return {it["id"]: it for it in b.itens("efeito")}
+
+
+def item_efeito(efeito_id, where: str = "efeito", raiz: Path | None = None) -> dict:
+    todos = efeitos(raiz)
+    if not isinstance(efeito_id, str) or efeito_id not in todos:
+        raise GraphicsError(f"{where}: efeito desconhecido {efeito_id!r} (os efeitos do banco "
+                            f"são: {', '.join(sorted(todos)) or 'nenhum'})")
+    return todos[efeito_id]
+
+
+def _validate_efeito(spec: dict, project: Path | None, where: str) -> dict:
+    unknown = set(spec) - EFEITO_KEYS
+    if unknown:
+        raise GraphicsError(f"{where}: chaves desconhecidas: {', '.join(sorted(map(str, unknown)))} "
+                            "(use id, efeito, campos, at, dur)")
+    cid = spec.get("id")
+    if not (isinstance(cid, str) and cid.strip() and len(cid) <= 64):
+        raise GraphicsError(f"{where}: id obrigatório (texto de 1 a 64 caracteres)")
+    where = f"{where} {cid!r}" if where == "card" else f"{where} ({cid!r})"
+    item = item_efeito(spec.get("efeito"), where)
+    campos = validar_campos(item, spec.get("campos"), project, where)
+    at, dur = spec.get("at"), spec.get("dur")
+    if not (common.is_num(at) and at >= 0):
+        raise GraphicsError(f"{where}: at deve ser número >= 0 (segundos do vídeo cortado)")
+    dmin, dmax = item["duracao"]["min"], item["duracao"]["max"]
+    if not (common.is_num(dur) and dmin <= dur <= dmax):
+        raise GraphicsError(f"{where}: dur deve ser número entre {dmin:g} e {dmax:g} s "
+                            f"(máximo do efeito {item['nome']}: {dmax:g} s)")
+    card = {"id": cid, "efeito": item["id"], "campos": campos, "at": float(at), "dur": float(dur),
+            "title": _rotulo(item, campos), "body": None, "material": None}
+    if item["id"] == EFEITO_LEGADO:
+        card["body"] = campos.get("texto")
+        img = campos.get("imagem")
+        card["material"] = img if isinstance(img, Path) else None
+    return card
+
+
+def _rotulo(item: dict, campos: dict) -> str:
+    """Nome curto do grafico na revisao: o primeiro texto preenchido, ou o nome do efeito."""
+    for c in item["campos"]:
+        v = campos.get(c["id"])
+        if c["tipo"] == "texto" and v:
+            texto = " · ".join(v) if isinstance(v, list) else v
+            return texto if len(texto) <= 60 else texto[:59] + "…"
+    return item["nome"]
+
+
+def _sem_controle(v: str) -> bool:
+    return not any(c != "\n" and unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") for c in v)
+
+
+def _valor(c: dict, v, project: Path | None, where: str):
+    """Um valor de campo validado (None = vazio)."""
+    rot = c["rotulo"]
+    tipo = c["tipo"]
+    if v is None:
+        return None
+    if tipo == "texto":
+        if not isinstance(v, str):
+            raise GraphicsError(f"{where}: {rot} precisa ser texto")
+        v = v.strip()
+        if not v:
+            return None
+        if not _sem_controle(v):
+            raise GraphicsError(f"{where}: {rot} tem caracteres de controle ou invisíveis")
+        mx = int(c.get("max", TEXTO_MAX))
+        if len(v) > mx:
+            raise GraphicsError(f"{where}: {rot} com {len(v)} caracteres (máximo {mx})")
+        if len(v) < c.get("min", 0):
+            raise GraphicsError(f"{where}: {rot} com {len(v)} caracteres (mínimo {c['min']:g})")
+        return v
+    if tipo == "numero":
+        if not common.is_num(v):
+            raise GraphicsError(f"{where}: {rot} precisa ser um número")
+        if "min" in c and v < c["min"] or "max" in c and v > c["max"]:
+            raise GraphicsError(f"{where}: {rot} precisa ficar entre {c.get('min', 0):g} e "
+                                f"{c.get('max', bancomod.LIM_CAMPO):g}")
+        if c.get("inteiro"):
+            if v != int(v):
+                raise GraphicsError(f"{where}: {rot} precisa ser um número inteiro")
+            return int(v)
+        return float(v)
+    if tipo == "cor":
+        if not (isinstance(v, str) and _HEX.fullmatch(v)):
+            raise GraphicsError(f"{where}: {rot} precisa ser uma cor #rrggbb")
+        return v.lower()
+    if tipo == "escolha":
+        if v not in c["opcoes"]:
+            raise GraphicsError(f"{where}: {rot} precisa ser uma destas opções: {', '.join(c['opcoes'])}")
+        return v
+    # imagem: arquivo do projeto (materiais/...) ou quadro:<segundo> do proprio video
+    if not isinstance(v, str):
+        raise GraphicsError(f"{where}: {rot} precisa ser o caminho de uma imagem do projeto "
+                            "ou quadro:<segundo>")
+    if v.strip() == "":
+        return None
+    if v.startswith("quadro:"):
+        return _quadro(v, project, where, rot)
+    return _material(v, project, f"{where} ({rot})")
+
+
+def validar_campos(item: dict, campos, project: Path | None, where: str) -> dict:
+    """``campos`` de um efeito conferido contra o manifesto; devolve o dict normalizado
+    (texto sem espacos nas pontas, imagens como Path ou {"quadro", "video"})."""
+    if campos is None:
+        campos = {}
+    if not isinstance(campos, dict):
+        raise GraphicsError(f"{where}: campos precisa ser um objeto {{campo: valor}}")
+    defs = {c["id"]: c for c in item["campos"]}
+    extra = sorted(set(map(str, campos)) - set(defs))
+    if extra:
+        raise GraphicsError(f"{where}: campo desconhecido para o efeito {item['nome']}: "
+                            f"{', '.join(extra)} (use {', '.join(defs) or 'nenhum'})")
+    out: dict = {}
+    for c in item["campos"]:
+        v = campos.get(c["id"])
+        if "itens" in c:
+            if v is None:
+                v = []
+            if not isinstance(v, list):
+                raise GraphicsError(f"{where}: {c['rotulo']} precisa ser uma lista")
+            if len(v) > c["itens"]["max"]:
+                raise GraphicsError(f"{where}: {c['rotulo']} com {len(v)} itens "
+                                    f"(máximo {c['itens']['max']})")
+            vals = []
+            for x in v:
+                val = _valor(c, x, project, where)
+                if val is None:
+                    raise GraphicsError(f"{where}: {c['rotulo']} tem um item vazio")
+                vals.append(val)
+            if (vals or c["obrigatorio"]) and len(vals) < c["itens"]["min"]:
+                raise GraphicsError(f"{where}: {c['rotulo']} precisa de pelo menos "
+                                    f"{c['itens']['min']} itens")
+            out[c["id"]] = vals
+        else:
+            val = _valor(c, v, project, where)
+            if val is None and c["obrigatorio"]:
+                raise GraphicsError(f"{where}: {c['rotulo']} é obrigatório")
+            out[c["id"]] = val
+    for grupo in item["dados"].get("mesmo_tamanho", []):
+        if len({len(out.get(g) or []) for g in grupo}) > 1:
+            rot = ", ".join(defs[g]["rotulo"] for g in grupo if g in defs)
+            raise GraphicsError(f"{where}: {rot} precisam ter a mesma quantidade de itens")
+    quadros = sum(1 for v in out.values() for x in (v if isinstance(v, list) else [v])
+                  if isinstance(x, dict) and "quadro" in x)
+    if quadros > QUADROS_MAX:
+        raise GraphicsError(f"{where}: no máximo {QUADROS_MAX} quadros do vídeo por efeito")
+    return out
+
+
+def _tempo_bruto(root: Path, s: float, where: str) -> float:
+    """Segundo da linha do tempo CORTADA -> segundo do video bruto (via cortes.json).
+    Sem transcricao/cortes legiveis, o segundo vale direto no video bruto."""
+    try:
+        dur = float(json.loads((root / "transcricao.json").read_text("utf-8"))["duration"])
+        cuts = json.loads((root / "cortes.json").read_text("utf-8"))["cuts"]
+        keep = cutmod.keep_segments(dur, cuts)
+    except (OSError, ValueError, KeyError, TypeError):
+        return s
+    if not keep:
+        return s
+    total = sum(b - a for a, b in keep)
+    if s > total + 1e-6:
+        raise GraphicsError(f"{where}: quadro:{s:g} passa do fim do vídeo cortado ({total:.2f} s)")
+    acc = 0.0
+    for a, b in keep:
+        if s <= acc + (b - a):
+            return min(b - 0.001, a + (s - acc))
+        acc += b - a
+    return keep[-1][1] - 0.001
+
+
+def _quadro(v: str, project: Path | None, where: str, rot: str) -> dict:
+    m = _QUADRO.fullmatch(v.strip())
+    if not m:
+        raise GraphicsError(f"{where}: {rot}: use quadro:<segundo> (por exemplo quadro:2.5), não {v!r}")
+    if project is None:
+        raise GraphicsError(f"{where}: {rot}: quadro do vídeo precisa da pasta do projeto")
+    root = Path(project).resolve()
+    videos = sorted(p for p in root.glob("entrada.*") if p.is_file())
+    if len(videos) != 1:
+        raise GraphicsError(f"{where}: {rot}: {v} pede o vídeo do projeto, mas a pasta não tem "
+                            "exatamente um arquivo entrada.*")
+    video = videos[0].resolve()
+    if not video.is_relative_to(root):
+        raise GraphicsError(f"{where}: {rot}: o vídeo do projeto está fora da pasta do projeto")
+    s = float(m.group(1))
+    return {"quadro": round(_tempo_bruto(root, s, where), 3), "segundo": s, "video": video}
 
 
 def load_cards(project: Path) -> list[dict]:
@@ -285,24 +510,85 @@ def frame_count(dur: float) -> int:
     return max(1, round(dur * FPS))
 
 
-def _page_data(card: dict, brand: dict, size: tuple[int, int]) -> dict:
+@functools.lru_cache(maxsize=8)
+def _font_data_uri(path: str) -> str:
+    return "data:font/ttf;base64," + base64.b64encode(Path(path).read_bytes()).decode("ascii")
+
+
+def _fontes(item: dict) -> list[dict]:
+    """Pesos da Poppins que o efeito pede (``dados.pesos``), como data: URI (CSP sem file:)."""
+    pesos = set(item["dados"].get("pesos", PESOS_PADRAO))
+    return [{"weight": f["weight"], "url": _font_data_uri(f["path"])}
+            for f in _font_files() if f["weight"] in pesos]
+
+
+def _data_uri(path: Path, what: str) -> str:
+    try:
+        raw = Path(path).read_bytes()
+    except OSError as e:
+        raise GraphicsError(f"{what}: imagem ilegível ({path}): {e}") from e
+    return f"data:{IMAGE_TYPES[Path(path).suffix.lower()]};base64," + base64.b64encode(raw).decode("ascii")
+
+
+def extrair_quadro(video: Path, t: float, what: str = "quadro") -> str:
+    """Um quadro do video em ``t`` s (bruto) como PNG data: URI (ffmpeg, lista, sem shell)."""
+    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{max(0.0, float(t)):.3f}", "-i", str(video),
+           "-frames:v", "1", "-vf", f"scale={QUADRO_LARGURA}:-2", "-f", "image2pipe",
+           "-c:v", "png", "pipe:1"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=60)
+    except FileNotFoundError:
+        raise RendererMissing(f"{what}: ffmpeg ausente") from None
+    except subprocess.TimeoutExpired:
+        raise GraphicsError(f"{what}: tempo esgotado ao tirar o quadro do vídeo") from None
+    except OSError as e:
+        raise GraphicsError(f"{what}: não foi possível executar o ffmpeg: {e}") from e
+    if proc.returncode != 0 or not proc.stdout.startswith(b"\x89PNG\r\n\x1a\n"):
+        tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or ["sem quadro"]
+        raise GraphicsError(f"{what}: não foi possível tirar o quadro de {t:.2f} s do vídeo ({tail[0]})")
+    if len(proc.stdout) > MATERIAL_MAX_BYTES:
+        raise GraphicsError(f"{what}: quadro do vídeo grande demais")
+    return "data:image/png;base64," + base64.b64encode(proc.stdout).decode("ascii")
+
+
+def _campos_pagina(campos: dict, what: str) -> dict:
+    """Campos validados -> o que a pagina recebe (imagens viram data: URI)."""
+    def conv(v):
+        if isinstance(v, list):
+            return [conv(x) for x in v]
+        if isinstance(v, Path):
+            return _data_uri(v, what)
+        if isinstance(v, dict) and "quadro" in v:
+            return extrair_quadro(v["video"], v["quadro"], what)
+        return v
+    return {k: conv(v) for k, v in campos.items()}
+
+
+def _card_campos(card: dict) -> dict:
+    if "campos" in card:
+        return card["campos"]
+    return {"titulo": card["title"], "texto": card.get("body"), "imagem": card.get("material")}
+
+
+def _page_data(card: dict, brand: dict, size: tuple[int, int], item: dict) -> dict:
     tokens = _brand_tokens(brand)
-    image = None
-    if card.get("material") is not None:
-        mat = Path(card["material"])
-        try:
-            raw = mat.read_bytes()
-        except OSError as e:
-            raise GraphicsError(f"card {card['id']!r}: material ilegível ({mat}): {e}") from e
-        image = f"data:{IMAGE_TYPES[mat.suffix.lower()]};base64," + base64.b64encode(raw).decode("ascii")
     n = frame_count(card["dur"])
     return {
-        "title": card["title"], "body": card.get("body"), "image": image,
-        **tokens, "fontFiles": _font_files(),
+        "campos": _campos_pagina(_card_campos(card), f"gráfico {card['id']!r}"),
+        **tokens, "fontes": _fontes(item),
         "scale": size[0] / CANVAS[0], "enter": ENTER_S, "exit": EXIT_S,
-        "lastFrameTime": (n - 1) / FPS,
+        "dur": card["dur"], "fps": FPS, "lastFrameTime": (n - 1) / FPS,
+        "transicao": item["dados"].get("transicao", "suave"),
+        "area": {"top": SAFE_TOP, "bottom": CANVAS[1] - SAFE_BOTTOM,
+                 "width": CANVAS[0], "height": CANVAS[1]},
         "safe": {"top": CARD_TOP, "maxHeight": CANVAS[1] - SAFE_BOTTOM - CARD_TOP},
     }
+
+
+def _job_base(item: dict, size: tuple[int, int]) -> dict:
+    return {"html": str(Path(item["pasta"]) / "efeito.html"),
+            "banco": str(Path(item["pasta"]).parent.parent),
+            "width": size[0], "height": size[1], "fps": FPS}
 
 
 def _run(cmd: list[str], what: str, *, env=None, timeout=None) -> str:
@@ -324,25 +610,30 @@ def _drive(job: dict, workdir: Path, what: str, driver: Path = DRIVER) -> dict:
     job_path = workdir / "job.json"
     job_path.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
     out = _run(["node", str(driver), str(job_path)], what, env=_node_env(),
-               timeout=60 + job.get("frames", 1) * 2)
+               timeout=60 + job.get("frames", 1) * 2 + len(job.get("verificar", [])) * 10)
     try:
         return json.loads(out)
     except ValueError:
         raise GraphicsError(f"{what}: resposta inesperada do navegador") from None
 
 
+def _item_do_card(card: dict) -> dict:
+    return item_efeito(card.get("efeito", EFEITO_LEGADO), f"gráfico {card['id']!r}")
+
+
 def render_clip(card: dict, brand: dict, out: Path, *, size: tuple[int, int] = CANVAS) -> Path:
     """Desenha um card JA validado. Saida atomica (``common.atomic_write``)."""
     out = Path(out)
     w, h = _check_size(size)
-    data = _page_data(card, brand, (w, h))
+    item = _item_do_card(card)
+    data = _page_data(card, brand, (w, h), item)
     n = frame_count(card["dur"])
     what = f"gráfico {card['id']!r}"
     with tempfile.TemporaryDirectory(prefix="reel-grafico-") as td:
         frames = Path(td) / "frames"
         frames.mkdir()
-        _drive({"html": str(TEMPLATE), "width": w, "height": h, "frames": n, "fps": FPS,
-                "outdir": str(frames), "data": data}, Path(td), what)
+        _drive({**_job_base(item, (w, h)), "frames": n, "outdir": str(frames), "data": data},
+               Path(td), what)
         with common.atomic_write(out, suffix=".webm") as tmp:
             _run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(FPS),
                   "-i", str(frames / "f%05d.png"), "-frames:v", str(n),
@@ -366,6 +657,28 @@ def render_card(spec: dict, brand: dict, out: Path, *, project: Path | None = No
     return render_clip(card, brand, out, size=size)
 
 
+def _inspecionar(card: dict, brand: dict, size: tuple[int, int], ts: list[float], *,
+                 shots: bool) -> list[dict]:
+    """Medidas da pagina em cada ``t`` (um navegador so); com ``shots``, o PNG de cada um."""
+    item = _item_do_card(card)
+    data = _page_data(card, brand, size, item)
+    with tempfile.TemporaryDirectory(prefix="reel-grafico-") as td:
+        job = {**_job_base(item, size), "data": data,
+               "inspect": {"ts": [float(t) for t in ts], "shotdir": td if shots else None}}
+        res = _drive(job, Path(td), f"gráfico {card['id']!r}")
+        quadros = res["quadros"]
+        for q in quadros:
+            q["pageErrors"] = res.get("pageErrors", [])
+            if q.get("shot"):
+                q["png"] = Path(q.pop("shot")).read_bytes()
+    return quadros
+
+
+def _meio(dur: float) -> float:
+    last = (frame_count(dur) - 1) / FPS
+    return (ENTER_S + last - EXIT_S) / 2
+
+
 def inspect_card(spec: dict, brand: dict, *, project: Path | None = None,
                  size: tuple[int, int] = CANVAS, t: float | None = None,
                  shot: Path | None = None) -> dict:
@@ -379,13 +692,107 @@ def inspect_card(spec: dict, brand: dict, *, project: Path | None = None,
     if reason:
         raise RendererMissing(f"gráfico {card['id']!r}: renderizador indisponível: {reason}")
     w, h = _check_size(size)
-    data = _page_data(card, brand, (w, h))
-    if t is None:
-        t = (ENTER_S + data["lastFrameTime"] - EXIT_S) / 2
-    with tempfile.TemporaryDirectory(prefix="reel-grafico-") as td:
-        job = {"html": str(TEMPLATE), "width": w, "height": h, "fps": FPS, "data": data,
-               "inspect": {"t": t, "shot": str(shot) if shot else None}}
-        return _drive(job, Path(td), f"gráfico {card['id']!r}")
+    [q] = _inspecionar(card, brand, (w, h), [_meio(card["dur"]) if t is None else t],
+                       shots=shot is not None)
+    if shot is not None:
+        Path(shot).write_bytes(q["png"])
+    return {**q.get("extra", {}), "pageErrors": q["pageErrors"]}
+
+
+def inspect_effect(efeito_id: str, campos: dict, brand: dict, *, project: Path | None = None,
+                   t: float | None = None, dur: float | None = None,
+                   size: tuple[int, int] = CANVAS, ts: list[float] | None = None) -> dict:
+    """Um efeito do banco montado com ``campos`` em ``t`` s (padrao: meio do trecho parado).
+
+    Devolve as caixas medidas em px de 1080x1920 (``caixas``, ``caixa`` = uniao),
+    ``opacidade`` do efeito, ``textos`` exibidos, imagens, ``xss`` e ``png`` (bytes do
+    quadro transparente em ``t``). Com ``ts``, devolve ``{"quadros": [...]}`` (um por t,
+    mesmo navegador). Usado pelos testes e pelos cartões do passo Estilo.
+    """
+    where = f"efeito {efeito_id!r}"
+    item = item_efeito(efeito_id, where)
+    norm = validar_campos(item, campos, project, where)
+    dur = item["duracao"]["padrao"] if dur is None else dur
+    if not (common.is_num(dur) and item["duracao"]["min"] <= dur <= item["duracao"]["max"]):
+        raise GraphicsError(f"{where}: dur deve ser número entre {item['duracao']['min']:g} e "
+                            f"{item['duracao']['max']:g} s")
+    reason = renderer_status()
+    if reason:
+        raise RendererMissing(f"{where}: renderizador indisponível: {reason}")
+    w, h = _check_size(size)
+    card = {"id": efeito_id, "efeito": efeito_id, "campos": norm, "at": 0.0, "dur": float(dur)}
+    lista = [_meio(float(dur)) if t is None else t] if ts is None else list(ts)
+    quadros = _inspecionar(card, brand, (w, h), lista, shots=True)
+    return {"quadros": quadros} if ts is not None else quadros[0]
+
+
+_PLACEHOLDER = ("data:image/svg+xml;base64," + base64.b64encode(
+    b'<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600"><defs>'
+    b'<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#235587"/>'
+    b'<stop offset="1" stop-color="#092744"/></linearGradient></defs>'
+    b'<rect width="600" height="600" fill="url(#g)"/></svg>').decode("ascii"))
+
+
+def _campos_exemplo(item: dict) -> dict:
+    """Campos de exemplo do manifesto (``dados.exemplo``) prontos para a pagina; imagens
+    viram uma imagem neutra (sem projeto na verificacao do banco)."""
+    ex = dict(item["dados"].get("exemplo") or {})
+    imagens = {c["id"]: c for c in item["campos"] if c["tipo"] == "imagem"}
+    for k in imagens:
+        ex.pop(k, None)
+    sem_imagem = {**item, "campos": [c for c in item["campos"] if c["tipo"] != "imagem"]}
+    norm = validar_campos(sem_imagem, ex, None, "exemplo")
+    for k, c in imagens.items():
+        if "itens" in c:
+            norm[k] = [_PLACEHOLDER] * max(1, c["itens"]["min"])
+        else:
+            norm[k] = _PLACEHOLDER
+    return norm
+
+
+def verificar_efeitos(itens: list[dict]) -> dict[str, str | None]:
+    """Abre cada efeito (um navegador para todos) com os campos de exemplo e chama
+    ``setup`` e ``setTime`` em alguns instantes: ``{id: None}`` se desenhou, senao o
+    motivo. Tambem confere a CSP sem rede. Sem navegador: ``RendererMissing``."""
+    reason = browser_status()
+    if reason:
+        raise RendererMissing(f"verificação dos efeitos: navegador indisponível: {reason}")
+    motivos: dict[str, str | None] = {}
+    jobs = []
+    size = SIZES["preview"]
+    for item in itens:
+        html = Path(item["pasta"]) / "efeito.html"
+        try:
+            texto = html.read_text("utf-8")
+        except (OSError, ValueError) as e:
+            motivos[item["id"]] = f"efeito.html ilegível: {e}"
+            continue
+        m = _CSP.search(texto)
+        if not m or "default-src 'none'" not in m.group(1) or re.search(r"https?:|file:", m.group(1)):
+            motivos[item["id"]] = ("efeito.html precisa da linha de segurança <meta http-equiv="
+                                   "\"Content-Security-Policy\"> com default-src 'none' (sem rede)")
+            continue
+        try:
+            campos = _campos_exemplo(item)
+        except GraphicsError as e:
+            motivos[item["id"]] = f"exemplo inválido no manifesto: {e}"
+            continue
+        dur = float(item["duracao"]["padrao"])
+        card = {"id": item["id"], "efeito": item["id"], "campos": campos, "at": 0.0, "dur": dur}
+        data = _page_data(card, {"bg": "#001931", "fg": "#ddebf5", "accent": "#a8c8f0",
+                                 "muted": "#566a7a", "font_title": "Poppins",
+                                 "font_body": "Poppins"}, size, item)
+        last = data["lastFrameTime"]
+        jobs.append({**_job_base(item, size), "id": item["id"], "data": data,
+                     "ts": [0.0, ENTER_S / 2, _meio(dur), last - EXIT_S / 2, last]})
+        motivos[item["id"]] = None
+    if jobs:
+        with tempfile.TemporaryDirectory(prefix="reel-efeitos-") as td:
+            res = _drive({"verificar": jobs, "width": size[0], "height": size[1]}, Path(td),
+                         "verificação dos efeitos")
+        for j in jobs:
+            motivos[j["id"]] = res.get(j["id"]) or None
+    return motivos
 
 
 # ---------------------------------------------------------------- CLI

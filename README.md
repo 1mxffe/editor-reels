@@ -62,7 +62,7 @@ references/                           formatos-reel.md, legendas.md, graficos.md
 review/review.html                    página de revisão (abrir do disco; lê e grava a pasta do projeto)
 scripts/                              doctor, brand, transcribe, cut, captions, graphics, render, review_apply, cover_frames, cover_compose
 assets/logo.webp                      logotipo do escritório (origem em references/capa.md)
-scripts/js/                           card.html + render_card.mjs (cards) e cover.html + render_cover.mjs (capa), desenhados no Chromium
+scripts/js/                           render_card.mjs (efeitos de banco/efeitos/) e cover.html + render_cover.mjs (capa), desenhados no Chromium
 tests/                                pytest (tests/js: driver Playwright da página de revisão)
 projects/<reel>/                      entrada.<ext>, transcricao.json, cortes.json, graficos.json, review.json, decisions.json, materiais/, capa/, saida/ (ignorado pelo git)
 ```

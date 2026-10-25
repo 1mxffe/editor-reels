@@ -51,17 +51,34 @@ def impressao(d: Path, com_graficos: bool = True, com_estilo: bool = True) -> st
     dados = {"cuts": cuts, "edits": edits}
     if com_graficos and (cards or decisoes):  # sem cards a impressao fica igual a de antes (projetos antigos)
         dados.update(cards=cards, graphics=decisoes)
-    arq_estilo = Path(d) / "estilo.json"
-    if com_estilo and arq_estilo.exists():  # sem estilo.json a impressao fica igual a de antes
-        estilo = _ler_json(arq_estilo)
-        if estilo is None:  # ilegivel/invalido tambem conta: o render vai recusar
-            try:
-                estilo = {"bruto": hashlib.sha256(arq_estilo.read_bytes()).hexdigest()}
-            except OSError:
-                estilo = {"bruto": None}
-        dados["estilo"] = estilo
+    if com_estilo:
+        marca_estilo = _impressao_estilo(Path(d) / "estilo.json")
+        if marca_estilo is not None:  # sem estilo.json a impressao fica igual a de antes
+            dados["estilo"] = marca_estilo
     bruto = json.dumps(dados, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(bruto.encode("utf-8")).hexdigest()
+
+
+MAX_ESTILO = 16 * 1024  # mesmo limite de scripts/estilo.py
+
+
+def _impressao_estilo(arq: Path):
+    """Marcador estavel do ``estilo.json`` (None se nao existe); nunca levanta nem trava.
+
+    Mesma leitura protegida do render (arquivo comum, sem link, ate 16 KiB). JSON valido
+    entra pelo conteudo canonico; ilegivel/invalido entra por um marcador fixo ou pelo
+    hash dos bytes: o render vai recusa-lo, mas o video gerado antes fica desatualizado."""
+    if not arq.exists() and not arq.is_symlink():
+        return None
+    try:
+        bruto = common.ler_limitado(arq, MAX_ESTILO)
+    except (OSError, ValueError) as e:
+        return {"invalido": type(e).__name__ if not isinstance(e, common.LeituraRecusada) else str(e)}
+    try:
+        canon = json.dumps(json.loads(bruto.decode("utf-8")), sort_keys=True, ensure_ascii=False)
+    except (ValueError, RecursionError, MemoryError, OverflowError):
+        return {"invalido": hashlib.sha256(bruto).hexdigest()}
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
 
 def arquivo_origem(d: Path, tipo: str) -> Path:
@@ -113,7 +130,7 @@ def slugify(name: str) -> str:
 def _ler_json(path: Path):
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError, MemoryError):
         return None
 
 

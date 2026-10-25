@@ -392,3 +392,13 @@ def test_render_invalid_estilo_fails_clearly(tmp_path, ass_spy):
     assert proc.returncode == 1
     assert "estilo.json" in proc.stderr and "arco-iris" in proc.stderr
     assert "Traceback" not in proc.stderr
+
+
+def test_render_estilo_invalido_antes_de_nenhuma_fala(tmp_path):
+    import estilo as estilomod
+    proj = _proj_words(tmp_path, [])
+    (proj / "estilo.json").write_text("[" * 16000, "utf-8")
+    with pytest.raises(estilomod.EstiloError):
+        render.render(proj, "preview")
+    proc = _cli(proj, "preview")
+    assert proc.returncode == 1 and "estilo.json" in proc.stderr and "Traceback" not in proc.stderr

@@ -1,0 +1,43 @@
+{
+  "nome": "Card de destaque",
+  "descricao": "Cartão de vidro azul-marinho com título, texto curto e uma foto opcional. É o card de sempre.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 3,
+    "min": 1,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "titulo",
+      "rotulo": "Título",
+      "tipo": "texto",
+      "max": 60,
+      "obrigatorio": true
+    },
+    {
+      "id": "texto",
+      "rotulo": "Texto",
+      "tipo": "texto",
+      "max": 140
+    },
+    {
+      "id": "imagem",
+      "rotulo": "Foto (opcional)",
+      "tipo": "imagem"
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      400,
+      600,
+      800
+    ],
+    "transicao": "suave",
+    "exemplo": {
+      "titulo": "Prazo em dias úteis",
+      "texto": "Sábados, domingos e feriados ficam fora da conta."
+    }
+  }
+}

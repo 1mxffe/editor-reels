@@ -1,6 +1,6 @@
-# Gráficos animados (cards)
+# Gráficos animados (efeitos e cards)
 
-Cards curtos sobre o vídeo (título, corpo e imagem opcionais), desenhados por
+Efeitos curtos sobre o vídeo, tirados do banco (`banco/efeitos/<id>/`), desenhados por
 `scripts/graphics.py` e sobrepostos pelo `render.py` no preview e no final.
 Só quando ajudam a entender a fala (um prazo, uma condição, um passo): no máximo
 1 a cada ~8 s, sem repetir a legenda. Reel sem card é válido.
@@ -22,6 +22,28 @@ Só quando ajudam a entender a fala (um prazo, uma condição, um passo): no má
   do projeto**, em geral `materiais/<nome>` da aba Materiais. Vídeos e links de
   inspiração não entram no card; servem de referência para quem escreve.
 
+Esse formato antigo continua valendo e é o efeito `card-destaque`
+(`title` → `titulo`, `body` → `texto`, `material` → `imagem`).
+
+### Qualquer efeito do banco
+
+```json
+{"cards": [{"id": "k2", "efeito": "numero-grande",
+            "campos": {"destaque": "60 dias", "frase": "é o prazo para recorrer"},
+            "at": 6.0, "dur": 3.0}]}
+```
+
+- `efeito`: o nome da pasta em `banco/efeitos/` (`card-destaque`, `numero-grande`,
+  `pilula-destaque`, `selos`, `polaroides`, `circulo-a-mao`, `seta-a-mao`, `calendario`,
+  `linha-do-tempo`, `palavra-destaque`). Nome que não existe é erro.
+- `campos`: o que o `manifesto.json` do efeito pede (tipos, tamanho máximo, obrigatórios,
+  listas com quantidade mínima e máxima). Campo que o efeito não tem é erro. Texto sem
+  caracteres de controle (quebra de linha pode).
+- Imagem: arquivo dentro da pasta do projeto (`materiais/foto.png`) ou
+  `quadro:<segundo>`, um quadro do próprio vídeo, no segundo da linha do tempo cortada
+  (no máximo 6 quadros por efeito). Ex.: `"imagens": ["quadro:2.5", "materiais/foto.png"]`.
+- `dur`: entre a duração mínima e a máxima do efeito (`palavra-destaque`: até 2 s).
+
 ## Revisão
 `review_apply.py build` lista os cards em `review.json` (`cards`: id, título,
 instante, duração, decisão). Na página, o revisor mantém ou descarta cada um;
@@ -40,13 +62,14 @@ instante, duração, decisão). Na página, o revisor mantém ou descarta cada u
 
 ## Como é desenhado
 
-HTML/CSS (`scripts/js/card.html`) no Chromium headless, quadro a quadro a 30 fps
+Cada efeito é uma página `banco/efeitos/<id>/efeito.html` (sem rede, texto só por
+`textContent`, `window.setup(dados)` e `window.setTime(t)`), aberta no Chromium headless, quadro a quadro a 30 fps
 (`scripts/js/render_card.mjs`, Playwright para Node), fundo transparente, sem
 rede; o ffmpeg junta os quadros num WebM VP9 com alfa. Sem HyperFrames.
 Requisitos: `node`, `npm i -g playwright`, `npx playwright install chromium` e
 ffmpeg com `libvpx-vp9` (item opcional de gráficos no `doctor`). Sem isso, o
-render de um projeto com card falha dizendo qual card. Só `Poppins-Bold.ttf` está em `assets/fonts/` (todos os pesos saem em Bold);
-acrescente `Poppins-{Regular,SemiBold,ExtraBold}.ttf` ali para o desenho completo.
+render de um projeto com card falha dizendo qual card. A Poppins vem de `assets/fonts/` (só os pesos que o efeito pede, embutidos na página).
+Para conferir se todos os efeitos desenham: `python3 -I scripts/banco.py validar --efeitos`.
 
 Card isolado: `python3 -I scripts/graphics.py <spec.json> brand/brand.json <saida.webm>`
 (saída 0 ok; 1 erro, com a mensagem e nada gravado).

@@ -1,0 +1,68 @@
+{
+  "nome": "Linha do tempo",
+  "descricao": "De 2 a 4 datas em sequência, cada uma com uma frase curta, ligadas por uma linha que se desenha.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 4,
+    "min": 2.5,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "titulo",
+      "rotulo": "Título (opcional)",
+      "tipo": "texto",
+      "max": 40
+    },
+    {
+      "id": "datas",
+      "rotulo": "Datas (2 a 4)",
+      "tipo": "texto",
+      "max": 16,
+      "obrigatorio": true,
+      "itens": {
+        "min": 2,
+        "max": 4
+      }
+    },
+    {
+      "id": "legendas",
+      "rotulo": "O que acontece em cada data",
+      "tipo": "texto",
+      "max": 60,
+      "obrigatorio": true,
+      "itens": {
+        "min": 2,
+        "max": 4
+      }
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      400,
+      600,
+      800
+    ],
+    "transicao": "suave",
+    "mesmo_tamanho": [
+      [
+        "datas",
+        "legendas"
+      ]
+    ],
+    "exemplo": {
+      "titulo": "Como corre o prazo",
+      "datas": [
+        "Dia 1",
+        "Dia 15",
+        "Dia 30"
+      ],
+      "legendas": [
+        "Você recebe a notificação",
+        "Último dia para juntar documentos",
+        "Prazo final para recorrer"
+      ]
+    }
+  }
+}

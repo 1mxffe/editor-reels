@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import errno
 import json
 import math
 import os
+import stat
 import subprocess
 import sys
 import tempfile
@@ -83,6 +85,46 @@ def atomic_write(path: Path, *, suffix: str = "") -> Iterator[Path]:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+class LeituraRecusada(ValueError):
+    """Arquivo recusado por ``ler_limitado`` (motivo em portugues)."""
+
+
+def ler_limitado(path: Path, max_bytes: int) -> bytes:
+    """Bytes de um arquivo comum pequeno, sem seguir link e sem travar.
+
+    Abre com O_NOFOLLOW|O_NONBLOCK (FIFO, dispositivo e link nao travam nem sao
+    seguidos), exige arquivo regular e le no maximo ``max_bytes``. Erros:
+    ``LeituraRecusada`` (link, nao e arquivo, grande demais) ou ``OSError``."""
+    path = Path(path)
+    if path.is_symlink():
+        raise LeituraRecusada("é um link (atalho); links não são aceitos")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as e:
+        if e.errno == errno.ELOOP:
+            raise LeituraRecusada("é um link (atalho); links não são aceitos") from None
+        raise
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise LeituraRecusada("não é um arquivo comum")
+        if st.st_size > max_bytes:
+            raise LeituraRecusada(f"é grande demais (máximo {max_bytes // 1024} KiB)")
+        partes, total = [], 0
+        while total <= max_bytes:
+            bloco = os.read(fd, min(65536, max_bytes + 1 - total))
+            if not bloco:
+                break
+            partes.append(bloco)
+            total += len(bloco)
+        if total > max_bytes:  # cresceu depois do fstat
+            raise LeituraRecusada(f"é grande demais (máximo {max_bytes // 1024} KiB)")
+        return b"".join(partes)
+    finally:
+        os.close(fd)
 
 
 def write_json_atomic(path: Path, data: dict) -> None:

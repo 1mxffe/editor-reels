@@ -1,0 +1,37 @@
+{
+  "nome": "Selos",
+  "descricao": "De 2 a 4 etiquetas curtas que entram uma depois da outra, como uma lista de pontos.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 3,
+    "min": 2,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "selos",
+      "rotulo": "Selos (2 a 4 textos curtos)",
+      "tipo": "texto",
+      "max": 28,
+      "obrigatorio": true,
+      "itens": {
+        "min": 2,
+        "max": 4
+      }
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      600
+    ],
+    "transicao": "suave",
+    "exemplo": {
+      "selos": [
+        "Sem carência",
+        "Vale para doença grave",
+        "Pedido pelo INSS"
+      ]
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "nome": "Seta à mão",
+  "descricao": "Uma seta que se desenha apontando para algo na tela. Escolha onde fica a ponta e para onde ela aponta.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 2.5,
+    "min": 1.5,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "x",
+      "rotulo": "Ponta na horizontal (0 = esquerda, 100 = direita)",
+      "tipo": "numero",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "y",
+      "rotulo": "Ponta na vertical (0 = alto, 100 = baixo)",
+      "tipo": "numero",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "direcao",
+      "rotulo": "Aponta",
+      "tipo": "escolha",
+      "opcoes": [
+        "para baixo",
+        "para cima",
+        "para a esquerda",
+        "para a direita"
+      ]
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      400
+    ],
+    "transicao": "suave",
+    "exemplo": {
+      "x": 55,
+      "y": 60,
+      "direcao": "para baixo"
+    }
+  }
+}

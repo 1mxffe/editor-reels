@@ -1,0 +1,48 @@
+{
+  "nome": "Círculo à mão",
+  "descricao": "Um traço que se desenha em volta de algo na tela, como caneta. Escolha onde e o tamanho.",
+  "tipo": "efeito",
+  "duracao": {
+    "padrao": 2.5,
+    "min": 1.5,
+    "max": 6
+  },
+  "campos": [
+    {
+      "id": "x",
+      "rotulo": "Posição na horizontal (0 = esquerda, 100 = direita)",
+      "tipo": "numero",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "y",
+      "rotulo": "Posição na vertical (0 = alto, 100 = baixo)",
+      "tipo": "numero",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "id": "tamanho",
+      "rotulo": "Tamanho",
+      "tipo": "escolha",
+      "opcoes": [
+        "pequeno",
+        "médio",
+        "grande"
+      ]
+    }
+  ],
+  "dados": {
+    "area_segura": true,
+    "pesos": [
+      400
+    ],
+    "transicao": "suave",
+    "exemplo": {
+      "x": 50,
+      "y": 45,
+      "tamanho": "médio"
+    }
+  }
+}

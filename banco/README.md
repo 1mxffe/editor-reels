@@ -17,7 +17,18 @@ Cada item é uma pasta com um arquivo `manifesto.json`. A tela de Estilo lê tud
 - `legendas/` (tipo `legenda`): `estilo` (`faixa`, `pilula`, `duas-linhas` ou `pequena`),
   `posicao_padrao` (`baixo` ou `meio`) e `tamanho_padrao` (`P`, `M` ou `G`).
 - `efeitos/` (tipo `efeito`): precisa de `efeito.html` na pasta e de `duracao`
-  (`padrao`, `min`, `max`, em segundos).
+  (`padrao`, `min`, `max`, em segundos). Em `dados`:
+  - `area_segura`: `true` (obrigatório): o efeito promete ficar entre y 250 e 1580 da tela
+    1080x1920, longe do topo e da faixa da legenda.
+  - `pesos` (opcional): pesos da Poppins que a página usa, entre 400, 500, 600, 700 e 800.
+  - `transicao` (opcional): `suave` (entra em 350 ms e sai em 300 ms) ou `corte` (corte seco).
+  - `exemplo` (opcional): campos de exemplo, usados no quadro de amostra e na verificação.
+  - `mesmo_tamanho` (opcional): grupos de campos-lista que precisam ter a mesma quantidade
+    (ex.: `[["datas", "legendas"]]`).
+  O `efeito.html` precisa da linha de segurança `Content-Security-Policy` com
+  `default-src 'none'` (sem internet) e das funções `window.setup(dados)` e
+  `window.setTime(t)`. Para testar no navegador: `python3 -I scripts/banco.py validar --efeitos`
+  (efeito que não desenha aparece com o motivo).
 - `materiais/` (tipo `material`): fotos, ícones e inspirações do escritório.
 
 ## Regras
@@ -27,6 +38,9 @@ Cada item é uma pasta com um arquivo `manifesto.json`. A tela de Estilo lê tud
 - `tipo` precisa ser o da pasta onde o item está.
 - `campos` é o que a pessoa preenche (`texto`, `numero`, `imagem`, `cor` ou `escolha`);
   `max` e `min` são números e `0 <= min <= max`; `escolha` pede `opcoes` (até 20 textos).
+  `itens` (`{"min": 2, "max": 4}`) transforma o campo numa lista (texto, número ou imagem);
+  `inteiro: true` só aceita números inteiros. Imagem pode ser um arquivo do projeto
+  (`materiais/foto.png`) ou `quadro:<segundo>` (um quadro do próprio vídeo).
 - Não use atalhos de pasta (links) nem `..` nos nomes. O manifesto tem no máximo 64 KiB.
 - Pastas cujo nome começa com ponto são ignoradas.
 - `campos` pode ser `[]` (item sem nada para preencher).
