@@ -303,3 +303,15 @@ def test_cards_and_keep_drop_mark_outputs_stale_but_notes_do_not(root):
         assert estado()["preview_desatualizado"] is False, "notas nao invalidam"
         assert c.request("PUT", rota, body={"cards": [_card(0, title="Outro")]}).status == 200
         assert estado()["preview_desatualizado"] is True
+
+
+def test_capa_argv_passa_estilo_so_quando_existe(tmp_path):
+    p = tmp_path / "proj"
+    (p / "capa").mkdir(parents=True)
+    Image.new("RGB", (8, 8)).save(p / "capa" / "candidato-1.png")
+    sem = tarefas.argv("capa", p, quadro="capa/candidato-1.png", gancho="3 MITOS")
+    assert not any(a.startswith("--estilo") for a in sem)
+    (p / "estilo.json").write_text(json.dumps({"paleta": "grafite"}), "utf-8")
+    com = tarefas.argv("capa", p, quadro="capa/candidato-1.png", gancho="3 MITOS")
+    assert f"--estilo={p / 'estilo.json'}" in com
+    assert [a for a in com if not a.startswith("--estilo")] == sem

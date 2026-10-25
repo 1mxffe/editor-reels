@@ -33,10 +33,12 @@ def _eh_entrada(nome: str) -> bool:
     return nome.startswith("entrada.") and nome[len("entrada"):] in EXT_VIDEO
 
 
-def impressao(d: Path, com_graficos: bool = True) -> str:
+def impressao(d: Path, com_graficos: bool = True, com_estilo: bool = True) -> str:
     """Impressao digital do que entra no video: cortes ativos + edicoes de legenda.
     Funcao pura dos arquivos; cards (graficos.json) e Manter/Fora dos cards contam,
-    notas nao. ``review_apply`` regrava os
+    notas nao; ``estilo.json`` conta (mudar o estilo invalida preview/final), menos
+    com ``com_estilo=False`` (confirmacao das legendas, que so dependem do texto).
+    ``review_apply`` regrava os
     arquivos a cada PUT (ate so de nota), por isso compara o conteudo canonico, nunca mtime."""
     cortes = _ler_json(Path(d) / "cortes.json")
     legendas = _ler_json(Path(d) / "legendas.json")
@@ -49,6 +51,15 @@ def impressao(d: Path, com_graficos: bool = True) -> str:
     dados = {"cuts": cuts, "edits": edits}
     if com_graficos and (cards or decisoes):  # sem cards a impressao fica igual a de antes (projetos antigos)
         dados.update(cards=cards, graphics=decisoes)
+    arq_estilo = Path(d) / "estilo.json"
+    if com_estilo and arq_estilo.exists():  # sem estilo.json a impressao fica igual a de antes
+        estilo = _ler_json(arq_estilo)
+        if estilo is None:  # ilegivel/invalido tambem conta: o render vai recusar
+            try:
+                estilo = {"bruto": hashlib.sha256(arq_estilo.read_bytes()).hexdigest()}
+            except OSError:
+                estilo = {"bruto": None}
+        dados["estilo"] = estilo
     bruto = json.dumps(dados, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(bruto.encode("utf-8")).hexdigest()
 
@@ -210,7 +221,8 @@ class Projects:
         atual = impressao(d)
         base = etapas_json.get("legendas_base") if isinstance(etapas_json, dict) else None
         # legendas so dependem de cortes/legendas: mexer nos cards nao pede reconfirmar
-        legendas_velhas = legendas_ok and isinstance(base, str) and base != impressao(d, com_graficos=False)
+        legendas_velhas = (legendas_ok and isinstance(base, str)
+                           and base != impressao(d, com_graficos=False, com_estilo=False))
         duracao = None
         trans = _ler_json(d / "transcricao.json")
         if isinstance(trans, dict):

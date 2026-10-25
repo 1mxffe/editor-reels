@@ -659,7 +659,7 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError):
                 pass
             atual["legendas"] = corpo["confirmado"]
-            atual["legendas_base"] = projects_mod.impressao(d, com_graficos=False)
+            atual["legendas_base"] = projects_mod.impressao(d, com_graficos=False, com_estilo=False)
             try:
                 common.write_json_atomic(d / "etapas.json", atual)
             except OSError:

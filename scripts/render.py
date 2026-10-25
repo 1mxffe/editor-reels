@@ -6,6 +6,8 @@ Layout do projeto (um diretorio por Reel, ``projects/<reel>/``)::
         entrada.<ext>      video bruto; exatamente um arquivo ``entrada.*``; nunca alterado
         transcricao.json   {"duration", "words": [{"w", "start", "end"}]} (transcribe.py)
         cortes.json        {"cuts": [{"id", "start", "end", "kind"}]} (cut.py detect / revisao)
+        estilo.json        opcional: paleta, fonte, legenda e cards (scripts/estilo.py);
+                           sem ele o resultado e o de sempre
         graficos.json      opcional: {"cards": [{id, title, body, at, dur, material}]}
                            (``at`` na linha do tempo cortada; ver graphics.py)
         revisao.json       opcional: {"graphics": {"<id>": "drop"}} tira o card
@@ -41,6 +43,7 @@ import brand as brandmod  # noqa: E402
 import captions  # noqa: E402
 import common  # noqa: E402
 import cut  # noqa: E402
+import estilo as estilomod  # noqa: E402
 import graphics  # noqa: E402
 import legendas_imagem  # noqa: E402
 
@@ -234,8 +237,15 @@ def render(project: Path, quality: Literal["preview", "final"],
     cards = load_cards(project)
     # (5) marca: BrandMissing propaga, nunca inventa valores
     brand = brandmod.load(Path(brand_path))
+    # estilo.json do projeto (opcional): paleta/fonte viram um brand efetivo (copia;
+    # brand.json intacto) e a legenda ganha estilo/posicao/tamanho. Sem o arquivo,
+    # nada muda (estilo=None: o .ass e byte a byte o de sempre).
+    est = None
+    if (project / estilomod.ARQUIVO).exists():
+        est = estilomod.carregar(project)
+        brand = estilomod.aplicar_marca(brand, est)
     try:
-        ass_text = captions.to_ass(phrases, brand, size=size)
+        ass_text = captions.to_ass(phrases, brand, size=size, estilo=est)
     except (ValueError, KeyError, TypeError) as e:
         raise brandmod.BrandMissing(f"brand.json com valor inválido ({brand_path}): {e}") from e
     cards = _fit_cards(cards, sum(b - a for a, b in keep))
@@ -278,7 +288,7 @@ def render(project: Path, quality: Literal["preview", "final"],
         if not libass:  # ffmpeg sem libass: legendas por imagem (PNG por frase)
             tmpdir = tempfile.TemporaryDirectory(prefix=".legendas-", dir=saida)
             tmp_root = Path(tmpdir.name)
-            track = legendas_imagem.write_track(phrases, brand, size, tmp_root)
+            track = legendas_imagem.write_track(phrases, brand, size, tmp_root, estilo=est)
             cmd += ["-f", "concat", "-safe", "0", "-i", str(track), "-filter_complex",
                     _image_captions_filter(size, cards, len(clips) + 1), "-map", "[vout]"]
         elif clips:
@@ -317,6 +327,8 @@ def main(argv: list[str] | None = None) -> None:
                     "rode a entrevista de marca antes de renderizar.")
     except legendas_imagem.PillowMissing as e:
         common.fail(str(e))
+    except estilomod.EstiloError as e:
+        common.fail(f"{e} (corrija ou apague {args.project / estilomod.ARQUIVO})")
     except (ProjectError, graphics.GraphicsError, OSError, ValueError) as e:
         common.fail(str(e))
     print(out)

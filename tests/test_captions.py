@@ -236,3 +236,115 @@ def test_display_text_treats_every_line_separator_as_a_break():
     for sep in ("\r\n", "\r", " ", " ", "\x85", "\v", "\f"):
         assert captions.display_text(f"PRAZO{sep}FINAL") == "PRAZO\nFINAL", repr(sep)
     assert captions.display_text("  \n a \n\n") == "a"
+
+
+# ---- Task 11: estilos de legenda (estilo.json) ----
+import estilo as estilomod  # noqa: E402
+
+GOLDEN = Path(__file__).resolve().parent / "golden"
+LEGENDAS = ("faixa-azul", "pilula-escura", "duas-linhas-grandes", "pequena-baixa-esquerda")
+
+
+def _est(leg="faixa-azul", posicao="baixo", tamanho="M", paleta="marca"):
+    return {**estilomod.DEFAULT, "paleta": paleta,
+            "legenda": {"estilo": leg, "posicao": posicao, "tamanho": tamanho}}
+
+
+def _golden_phrases():
+    words = json.loads((GOLDEN / "palavras.json").read_text("utf-8"))["words"]
+    return captions.phrases(words)
+
+
+def test_default_ass_byte_identical_to_golden(tmp_path):
+    golden = (GOLDEN / "legenda_atual.ass").read_bytes()
+    assert captions.to_ass(_golden_phrases(), BR).encode("utf-8") == golden
+    assert captions.to_ass(_golden_phrases(), BR, estilo=None).encode("utf-8") == golden
+    b = write(tmp_path / "brand.json", BR)
+    out = tmp_path / "out.ass"
+    p = run_cli(GOLDEN / "palavras.json", b, out)
+    assert p.returncode == 0, p.stderr
+    assert out.read_bytes() == golden
+
+
+def _todos_estilos():
+    for leg in LEGENDAS:
+        for pos in ("baixo", "meio"):
+            for tam in ("P", "M", "G"):
+                yield _est(leg, pos, tam)
+
+
+def test_each_style_has_no_animation_tags():
+    ph = _golden_phrases()
+    for est in _todos_estilos():
+        ass = captions.to_ass(ph, BR, estilo=est)
+        for tag in [r"\t(", r"\k", r"\K", r"\move", r"\fscx", r"\fscy", r"\frx", r"\fry",
+                    r"\frz", r"\org", r"\clip", r"\p1", r"\pos", r"\fade("]:
+            assert tag not in ass, (est["legenda"], tag)
+        for d in dialogues(ass):
+            tags = re.findall(r"\\([a-z]+)", d.split(",", 9)[9].split("}")[0])
+            assert set(tags) <= {"fad", "fs"}, tags
+
+
+def test_fade_at_most_150ms_every_style():
+    for est in _todos_estilos():
+        fades = re.findall(r"\\fad\((\d+),(\d+)\)", captions.to_ass(_golden_phrases(), BR, estilo=est))
+        assert fades and all(int(a) <= 150 and int(b) <= 150 for a, b in fades)
+
+
+def test_bottom_position_respects_safe_area_340():
+    for leg in LEGENDAS:
+        for tam in ("P", "M", "G"):
+            for size in ((1080, 1920), (540, 960)):
+                ass = captions.to_ass(_golden_phrases(), BR, size=size, estilo=_est(leg, "baixo", tam))
+                st = style_fields(ass)
+                assert int(st["MarginV"]) >= round(340 * size[1] / 1920)
+                assert st["Alignment"] in ("1", "2")
+                prm = captions.estilo_legenda(_est(leg, "baixo", tam), BR, size)
+                # a caixa/contorno inteiro fica acima da base livre
+                assert prm["mv"] - prm["outline"] - prm["contorno"] >= round(300 * size[1] / 1920)
+        st = style_fields(captions.to_ass(_golden_phrases(), BR, estilo=_est(leg, "meio")))
+        assert st["Alignment"] in ("4", "5")
+
+
+def test_size_scaling():
+    for leg in LEGENDAS:
+        fs = {t: int(style_fields(captions.to_ass(_golden_phrases(), BR, estilo=_est(leg, tamanho=t)))
+                     ["Fontsize"]) for t in ("P", "M", "G")}
+        assert fs["P"] == round(fs["M"] * 0.85) or abs(fs["P"] - fs["M"] * 0.85) <= 1
+        assert abs(fs["G"] - fs["M"] * 1.2) <= 1
+        assert fs["P"] < fs["M"] < fs["G"]
+    # faixa M = o padrao de hoje
+    assert style_fields(captions.to_ass(_golden_phrases(), BR, estilo=_est()))["Fontsize"] == "64"
+
+
+def test_style_specifics():
+    ph = _golden_phrases()
+    pil = style_fields(captions.to_ass(ph, BR, estilo=_est("pilula-escura")))
+    assert pil["BorderStyle"] == "3" and pil["BackColour"] == "&H26311900"  # fundo a 85 %
+    duas = style_fields(captions.to_ass(ph, BR, estilo=_est("duas-linhas-grandes")))
+    assert duas["BorderStyle"] == "1" and int(duas["Outline"]) > 0
+    assert int(duas["Fontsize"]) > 64
+    peq = style_fields(captions.to_ass(ph, BR, estilo=_est("pequena-baixa-esquerda")))
+    assert peq["Alignment"] == "1" and int(peq["Fontsize"]) < 64
+    for est in _todos_estilos():
+        for d in dialogues(captions.to_ass(ph, BR, estilo=est)):
+            assert d.count("\\N") <= 1  # no maximo 2 linhas
+
+
+def test_style_uses_brand_colors():
+    b = {**BR, "fg": "#112233", "bg": "#445566"}
+    st = style_fields(captions.to_ass(_golden_phrases(), b, estilo=_est("pilula-escura")))
+    assert st["PrimaryColour"] == "&H00332211" and st["BackColour"].endswith("665544")
+
+
+def test_default_estilo_keeps_default_look():
+    """estilo padrao explicito: mesmo Style do padrao; texto so muda se nao couber."""
+    padrao = captions.to_ass(_golden_phrases(), BR)
+    explicito = captions.to_ass(_golden_phrases(), BR, estilo=estilomod.DEFAULT)
+    assert style_fields(padrao) == style_fields(explicito)
+
+
+def test_invalid_estilo_raises_valueerror():
+    import pytest
+    with pytest.raises(ValueError):
+        captions.to_ass(_golden_phrases(), BR, estilo=_est("nao-existe"))

@@ -28,6 +28,7 @@ Instagram) e dentro do recorte 3:4 da grade do perfil (y de 240 a 1680).
 
 Uso: python3 -I scripts/cover_compose.py <foto> <brand.json> <saida.png> --hook "3 MITOS"
          [--area "ISENÇÃO DE IR"] [--subtitle "linha branca\\nlinha em destaque"] [--logo <arquivo>]
+         [--estilo <estilo.json>]  (cores e fonte da paleta escolhida; brand.json não muda)
 Saída: 0 ok (imprime o caminho); 1 erro (mensagem ``erro: ...``, nada gravado).
 """
 import sys
@@ -369,9 +370,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--subtitle", default=None,
                         help='subtítulo; a parte depois do último \\n sai em destaque')
     parser.add_argument("--logo", type=Path, default=None, help="padrão: assets/logo.webp")
+    parser.add_argument("--estilo", type=Path, default=None,
+                        help="estilo.json do projeto (paleta e fonte); padrão: só o brand.json")
     args = parser.parse_args(argv)
     try:
         b = brandmod.load(args.brand)
+        if args.estilo is not None:
+            import estilo as estilomod
+            if common.same_file(args.out, args.estilo):
+                raise CoverError(f"a saída {args.out} é o próprio estilo.json; escolha outro caminho")
+            b = estilomod.aplicar_marca(b, estilomod.ler(args.estilo))
         out = compose(args.photo, cli_text(args.hook), b, args.out, area=cli_text(args.area),
                       subtitle=cli_text(args.subtitle), logo=args.logo, brand_path=args.brand)
     except brandmod.BrandMissing as e:

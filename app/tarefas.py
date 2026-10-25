@@ -199,6 +199,8 @@ def argv(tipo: str, project: Path, *, falso: bool = False, marca: Path | None = 
             cmd.append(f"--area={opts['area']}")
         if "subtitulo" in opts:
             cmd.append(f"--subtitle={opts['subtitulo']}")
+        if (project / "estilo.json").is_file():  # paleta/fonte do projeto; sem ele, argv de sempre
+            cmd.append(f"--estilo={project / 'estilo.json'}")
         return cmd + [str(quadro), str(marca or BRAND), str(project / "capa" / "capa.png")]
     # instalar-chromium: argv fixo, nenhuma entrada do usuario
     return ["sh", "-c", "npm i -g playwright && npx playwright install chromium"]

@@ -307,3 +307,88 @@ def test_mkstemp_failure_leaves_no_tmp(tmp_path, stub_ffmpeg, monkeypatch):
     with pytest.raises(OSError):
         render.render(proj, "preview")
     assert list((proj / "saida").iterdir()) == []
+
+
+# ---- Task 11: estilo.json ----
+import hashlib  # noqa: E402
+
+ASS_HEAD = {  # hash do .ass que o render gerava antes do estilo.json (commit aca4b43)
+    "preview": "7f5e40f1f51553a5c8a44a82231a8dc4af016d760b8684152cfb2f4f23c009bc",
+    "final": "6895616cf7f36b51cf1a0ead8206eab13532c1de58a0d6572bfc0c7427776fe7",
+}
+
+
+@pytest.fixture
+def ass_spy(monkeypatch):
+    """Stub do ffmpeg que guarda o .ass que o render deixou para o filtro subtitles."""
+    got = []
+
+    def fake_run(cmd):
+        saida = Path(cmd[-1]).parent
+        got.extend(p.read_text("utf-8") for p in saida.glob(".legendas-*.tmp.ass"))
+        Path(cmd[-1]).write_bytes(b"mp4")
+        return ""
+
+    monkeypatch.setattr(cut, "apply", lambda v, c, o: Path(o).write_bytes(b"x"))
+    monkeypatch.setattr(render, "_has_audio", lambda v: True)
+    monkeypatch.setattr(render, "has_libass", lambda: True)
+    monkeypatch.setattr(render.common, "run", fake_run)
+    return got
+
+
+def _style(ass):
+    line = next(l for l in ass.splitlines() if l.startswith("Style:"))
+    fmt = next(l for l in ass.splitlines() if l.startswith("Format:") and "Fontname" in l)
+    keys = [k.strip() for k in fmt[len("Format:"):].split(",")]
+    return dict(zip(keys, (v.strip() for v in line[len("Style:"):].split(","))))
+
+
+@pytest.mark.parametrize("quality", ["preview", "final"])
+def test_render_without_estilo_unchanged(tmp_path, ass_spy, quality):
+    proj = _proj_words(tmp_path, _w(CLEAN_WORDS))
+    render.render(proj, quality)
+    [ass] = ass_spy
+    assert hashlib.sha256(ass.encode("utf-8")).hexdigest() == ASS_HEAD[quality]
+
+
+def test_render_with_estilo_uses_palette_font(tmp_path, ass_spy, monkeypatch):
+    import banco
+    import graphics
+    proj = _proj_words(tmp_path, _w(CLEAN_WORDS))
+    (proj / "estilo.json").write_text(json.dumps({
+        "paleta": "grafite", "fonte": "Poppins",
+        "legenda": {"estilo": "pilula-escura", "posicao": "meio", "tamanho": "G"},
+        "cards": {"estilo": "vidro"}}), "utf-8")
+    brand_antes = render.DEFAULT_BRAND.read_bytes()
+    marcas = []
+    card = {"id": "g1", "title": "Prazo", "body": "15 dias úteis", "at": 0.5, "dur": 1.5}
+    monkeypatch.setattr(render, "load_cards", lambda p: [dict(card)])
+    monkeypatch.setattr(graphics, "renderer_status", lambda: None)
+
+    def fake_clip(c, b, out, size):
+        marcas.append(b)
+        Path(out).write_bytes(b"webm")
+        return Path(out)
+    monkeypatch.setattr(graphics, "render_clip", fake_clip)
+    render.render(proj, "final")
+    [ass] = ass_spy
+    pal = banco.carregar().item("paleta", "grafite")["dados"]
+    st = _style(ass)
+    assert st["Fontname"] == "Poppins"
+    assert st["PrimaryColour"] == captions._ass_color(pal["texto"])
+    assert st["BackColour"] == captions._ass_color(pal["fundo"], alpha=0x26)
+    assert st["Alignment"] == "5" and int(st["Fontsize"]) > 64
+    [b] = marcas
+    assert (b["bg"], b["fg"], b["accent"], b["muted"]) == (
+        pal["fundo"], pal["texto"], pal["destaque"], pal["apoio"])
+    assert b["font_title"] == b["font_body"] == "Poppins"
+    assert render.DEFAULT_BRAND.read_bytes() == brand_antes
+
+
+def test_render_invalid_estilo_fails_clearly(tmp_path, ass_spy):
+    proj = _proj_words(tmp_path, _w(CLEAN_WORDS))
+    (proj / "estilo.json").write_text('{"paleta": "arco-iris"}', "utf-8")
+    proc = _cli(proj, "preview")
+    assert proc.returncode == 1
+    assert "estilo.json" in proc.stderr and "arco-iris" in proc.stderr
+    assert "Traceback" not in proc.stderr

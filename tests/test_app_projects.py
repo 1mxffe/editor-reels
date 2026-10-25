@@ -193,3 +193,39 @@ def test_state_ignores_etapas_with_wrong_types(projs):
     for bruto in (b'{"legendas": "sim"}', b'{"legendas": 1}', b'{"legendas": null}', b"{x", b'"a"'):
         _touch(d / "etapas.json", bruto)
         assert projs.state("t")["etapas"]["legendas"] == "pendente"
+
+
+# ---- Task 11: estilo.json entra na impressao ----
+def test_impressao_muda_com_estilo_json(tmp_path):
+    import projects as projects_mod
+    d = tmp_path / "p"
+    d.mkdir()
+    (d / "cortes.json").write_text(json.dumps({"cuts": []}), "utf-8")
+    sem = projects_mod.impressao(d)
+    sem_base = projects_mod.impressao(d, com_graficos=False)
+    sem_leg = projects_mod.impressao(d, com_graficos=False, com_estilo=False)
+    assert sem_leg == sem_base  # sem estilo.json nada muda (projetos antigos)
+    (d / "estilo.json").write_text(json.dumps({"paleta": "grafite"}), "utf-8")
+    com = projects_mod.impressao(d)
+    assert com != sem
+    assert projects_mod.impressao(d, com_graficos=False) != sem_base  # nao e "so graficos"
+    # legendas confirmadas nao dependem do estilo
+    assert projects_mod.impressao(d, com_graficos=False, com_estilo=False) == sem_leg
+    (d / "estilo.json").write_text(json.dumps({"paleta": "marca"}), "utf-8")
+    assert projects_mod.impressao(d) not in (sem, com)
+    (d / "estilo.json").write_text("{quebrado", "utf-8")  # invalido tambem conta
+    assert projects_mod.impressao(d) != sem
+
+
+def test_preview_desatualizado_quando_estilo_muda(projs):
+    p = projs.create("Estilo")
+    d = projs.path(p["slug"])
+    (d / "cortes.json").write_text(json.dumps({"cuts": []}), "utf-8")
+    import projects as projects_mod
+    projects_mod.registrar_origem(d, "preview")
+    (d / "saida" / "preview.mp4").write_bytes(b"mp4")
+    os.utime(d / "saida" / "preview.mp4", (os.path.getmtime(projects_mod.arquivo_origem(d, "preview")) + 5,) * 2)
+    assert projs.state(p["slug"])["preview_desatualizado"] is False
+    (d / "estilo.json").write_text(json.dumps({"paleta": "grafite"}), "utf-8")
+    st = projs.state(p["slug"])
+    assert st["preview_desatualizado"] is True and st["preview_so_graficos"] is False

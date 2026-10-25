@@ -18,7 +18,8 @@ Ordem fixa em ``render_card``: validacao (antes de qualquer navegador, ffmpeg ou
 arquivo) -> navegador -> ffmpeg -> temporario unico renomeado.
 
 Uso: python3 -I scripts/graphics.py <spec.json> <brand.json> <saida.webm>
-         [--project <pasta>] [--size preview|final]
+         [--project <pasta>] [--size preview|final] [--estilo <estilo.json>]
+         (``--estilo``: cores e fonte da paleta escolhida; brand.json nao muda)
      python3 -I scripts/graphics.py validar <graficos.json> <projeto>
          (so valida: imprime ``ok`` ou ``erro: ...``)
 Saida: 0 ok; 1 erro (mensagem ``erro: ...``).
@@ -415,6 +416,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--project", type=Path, default=None,
                         help="pasta do projeto (materiais); padrão: pasta do spec")
     parser.add_argument("--size", choices=sorted(SIZES), default="final")
+    parser.add_argument("--estilo", type=Path, default=None,
+                        help="estilo.json do projeto (paleta e fonte); padrão: só o brand.json")
     args = parser.parse_args(argv)
     for what, path in (("do spec", args.spec), ("do brand.json", args.brand)):
         if common.same_file(args.out, path):
@@ -426,6 +429,9 @@ def main(argv: list[str] | None = None) -> None:
         except (OSError, ValueError) as e:
             common.fail(f"spec ilegível ({args.spec}): {e}")
         brand = brandmod.load(args.brand)
+        if args.estilo is not None:
+            import estilo as estilomod
+            brand = estilomod.aplicar_marca(brand, estilomod.ler(args.estilo))
         project = args.project if args.project is not None else args.spec.resolve().parent
         out = render_card(spec, brand, args.out, project=project, size=SIZES[args.size])
     except brandmod.BrandMissing as e:

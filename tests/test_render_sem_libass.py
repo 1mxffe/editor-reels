@@ -197,3 +197,81 @@ def test_doctor_sem_libass_e_informativo(monkeypatch):
     import instalacao
     t = instalacao.traduzir("READY", [{**leg}])
     assert t["itens"][0]["mensagem"] == "Legendas: usando o modo alternativo — tudo certo"
+
+
+# ---- Task 11: estilos no caminho por imagem ----
+import estilo as estilomod  # noqa: E402
+
+GOLDEN = REPO / "tests" / "golden"
+LEGENDAS = ("faixa-azul", "pilula-escura", "duas-linhas-grandes", "pequena-baixa-esquerda")
+SEED = {"fg": "#ddebf5", "bg": "#001931", "font_body": "Poppins"}
+
+
+def _est(leg, posicao="baixo", tamanho="M"):
+    return {**estilomod.DEFAULT, "legenda": {"estilo": leg, "posicao": posicao, "tamanho": tamanho}}
+
+
+def test_padrao_identico_ao_golden_png():
+    for nome, texto, size in (
+            ("legenda_atual_540.png", "O prazo para recorrer conta em dias\núteis, não corridos", (540, 960)),
+            ("legenda_atual_1080.png", "Esta é uma frase propositalmente muito comprida para testar "
+                                       "a quebra automática", (1080, 1920))):
+        gold = Image.open(GOLDEN / nome)
+        for est in (None,):
+            img = legendas_imagem.draw(texto, SEED, size, estilo=est)
+            assert img.size == gold.size and img.mode == gold.mode
+            assert img.tobytes() == gold.tobytes(), nome
+        assert legendas_imagem.draw(texto, SEED, size).tobytes() == gold.tobytes()
+
+
+def test_cada_estilo_gera_png_sem_erro():
+    for leg in LEGENDAS:
+        for pos in ("baixo", "meio"):
+            for tam in ("P", "M", "G"):
+                for size in ((540, 960), (1080, 1920)):
+                    img = legendas_imagem.draw("Leia a intimação com calma", SEED, size,
+                                               estilo=_est(leg, pos, tam))
+                    assert img.size == size and img.mode == "RGBA"
+                    bbox = img.getbbox()
+                    assert bbox is not None, (leg, pos, tam)
+                    if pos == "baixo":  # nada desenhado na base livre (Instagram)
+                        assert bbox[3] <= size[1] - round(300 * size[1] / 1920), (leg, tam, bbox)
+
+
+def test_texto_longo_ate_duas_linhas_todos_estilos():
+    text = ("Esta é uma frase propositalmente muito comprida para testar a quebra "
+            "automática em no máximo duas linhas")
+    for leg in LEGENDAS:
+        for tam in ("P", "M", "G"):
+            for size in ((540, 960), (1080, 1920)):
+                prm = captions.estilo_legenda(_est(leg, tamanho=tam), SEED, size)
+                font, _, _, lines, m = legendas_imagem.layout(text, size, prm)
+                assert 1 <= len(lines) <= 2
+                assert " ".join(lines) == captions.display_text(text)
+                for line in lines:
+                    assert font.getlength(line) <= size[0] - 2 * m["mlr"]
+
+
+def test_ass_e_imagem_mesmas_linhas():
+    """Um so layout: as quebras do .ass com estilo sao as do PNG."""
+    text = ("Esta é uma frase propositalmente muito comprida para testar a quebra "
+            "automática em no máximo duas linhas")
+    ph = [{"text": text, "start": 0.0, "end": 2.0}]
+    for leg in LEGENDAS:
+        est = _est(leg, tamanho="G")
+        ass = captions.to_ass(ph, SEED, estilo=est)
+        corpo = [l for l in ass.splitlines() if l.startswith("Dialogue:")][0].split(",", 9)[9]
+        linhas = corpo.split("}", 1)[1].split("\\N")
+        prm = captions.estilo_legenda(est, SEED, (1080, 1920))
+        _, _, fs, lines, _ = legendas_imagem.layout(text, (1080, 1920), prm)
+        assert linhas == lines
+        if fs != prm["fontsize"]:
+            assert f"\\fs{fs}" in corpo
+
+
+def test_pilula_cantos_arredondados():
+    img = legendas_imagem.draw("Leia a intimação", SEED, (1080, 1920), estilo=_est("pilula-escura", "meio"))
+    x0, y0, x1, y1 = img.getbbox()
+    assert img.getpixel((x0, y0))[3] == 0  # canto vazio: arredondado
+    meio_y = (y0 + y1) // 2
+    assert img.getpixel((x0 + 2, meio_y))[3] > 200  # caixa a 85 %

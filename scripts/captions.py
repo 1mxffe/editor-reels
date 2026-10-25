@@ -1,6 +1,9 @@
 """Legendas estaticas por frase: remapeia palavras apos os cortes, agrupa em frases e gera ASS.
 
-Sem animacao: unico override permitido e o fade de 100 ms no inicio de cada Dialogue.
+Sem animacao: unico override permitido e o fade de 100 ms no inicio de cada Dialogue
+(com ``estilo``, tambem um ``\\fs`` estatico quando a frase precisa de fonte menor).
+Os quatro estilos do banco (faixa, pilula, duas-linhas, pequena), a posicao e o tamanho
+vem de ``estilo_legenda``, a mesma descricao usada pelas legendas por imagem.
 A CLI (``captions.py <palavras.json> <brand.json> <out.ass>``) e de
 uso interno/depuracao: grava so o ASS; a legenda do Reel sai so pelo ``render.py``,
 que aplica cortes e edicoes de legenda antes.
@@ -153,16 +156,82 @@ def _escape(text: str) -> str:
     return display_text(text).replace("\n", "\\N")
 
 
-def to_ass(phrases: list[dict], brand: dict, size: tuple[int, int] = (1080, 1920)) -> str:
+# Estilos de legenda (estilo.json). Medidas em 1080x1920, tamanho M; ``caixa``:
+# "faixa" = uma caixa por linha (BorderStyle 3), "pilula" = idem com cantos
+# arredondados no caminho por imagem; sem caixa = contorno (BorderStyle 1).
+TIPOS = {
+    "faixa": {"fontsize": 64, "outline": 14, "contorno": 0, "caixa": "faixa", "alpha": 0x73,
+              "alinhar": "centro"},
+    "pilula": {"fontsize": 60, "outline": 20, "contorno": 0, "caixa": "pilula",
+               "alpha": round(255 * 0.15), "alinhar": "centro"},  # fundo a 85 %
+    "duas-linhas": {"fontsize": 76, "outline": 0, "contorno": 5, "caixa": None, "alpha": 0,
+                    "alinhar": "centro"},
+    "pequena": {"fontsize": 50, "outline": 0, "contorno": 4, "caixa": None, "alpha": 0,
+                "alinhar": "esquerda"},
+}
+ESCALA = {"P": 0.85, "M": 1.0, "G": 1.2}
+MAX_LINES = 2
+_ALIGN = {("centro", "baixo"): 2, ("esquerda", "baixo"): 1,
+          ("centro", "meio"): 5, ("esquerda", "meio"): 4}
+
+
+def estilo_legenda(estilo: dict | None, brand: dict | None, size: tuple[int, int] = (1080, 1920)) -> dict:
+    """Descricao unica do desenho da legenda, usada pelo ASS e pelas legendas por imagem.
+
+    ``estilo=None``: a faixa de sempre (64/14/72/340 em 1080x1920), com ``fg``/``bg``
+    do brand. Com estilo (estilo.json), o tipo vem do item do banco e ``posicao`` /
+    ``tamanho`` do proprio estilo; as cores continuam vindo do ``brand`` (ja com a
+    paleta aplicada por ``estilo.aplicar_marca``)."""
+    k = size[1] / 1920
+    if estilo is None:
+        tipo, vertical, escala = "faixa", "baixo", 1.0
+    else:
+        import banco as bancomod
+        import estilo as estilomod
+        b = bancomod.carregar()
+        est = estilomod.validar(estilo, b)
+        tipo = estilomod.tipo_legenda(est, b)
+        vertical, escala = est["legenda"]["posicao"], ESCALA[est["legenda"]["tamanho"]]
+    base = TIPOS[tipo]
+    return {
+        "tipo": tipo,
+        "fontsize": round(base["fontsize"] * escala * k),
+        "outline": round(base["outline"] * escala * k),  # folga da caixa (BorderStyle 3)
+        "contorno": max(1, round(base["contorno"] * escala * k)) if base["contorno"] else 0,
+        "mlr": round(72 * k),
+        "mv": round(340 * k),
+        "caixa": base["caixa"],
+        "alpha": base["alpha"],
+        "raio": round(base["outline"] * escala * k),
+        "alinhar": base["alinhar"],
+        "vertical": vertical,
+        "an": _ALIGN[(base["alinhar"], vertical)],
+        "fg": brand["fg"] if brand else None,
+        "bg": brand["bg"] if brand else None,
+        "font": brand["font_body"] if brand else None,
+        "max_lines": MAX_LINES,
+    }
+
+
+def to_ass(phrases: list[dict], brand: dict, size: tuple[int, int] = (1080, 1920),
+           estilo: dict | None = None) -> str:
+    """ASS das frases. ``estilo=None``: saida identica a de sempre (texto como veio).
+
+    Com ``estilo``, cada frase passa pelo mesmo layout das legendas por imagem
+    (quebra em ate 2 linhas na largura util, fonte reduzida so se nao couber, com
+    ``\\fs`` estatico); nenhuma tag de animacao alem do ``\\fad``."""
     w, h = size
-    k = h / 1920
-    fontsize, outline = round(64 * k), round(14 * k)
-    mlr, mv = round(72 * k), round(340 * k)
     import brand as brandmod  # o nome da fonte vai cru para a linha Style:
     if not brandmod.valid_name(brand["font_body"]):
         raise ValueError(f"fonte invalida: {brand['font_body']!r}")
-    primary = _ass_color(brand["fg"])
-    back = _ass_color(brand["bg"], alpha=0x73)
+    p = estilo_legenda(estilo, brand, size)
+    primary = _ass_color(p["fg"])
+    if p["caixa"]:
+        border, borda = 3, p["outline"]
+        outline_col = back = _ass_color(p["bg"], alpha=p["alpha"])
+    else:
+        border, borda = 1, p["contorno"]
+        outline_col, back = _ass_color(p["bg"]), _ass_color(p["bg"], alpha=0x73)
     header = (
         "[Script Info]\n"
         "ScriptType: v4.00+\n"
@@ -174,19 +243,25 @@ def to_ass(phrases: list[dict], brand: dict, size: tuple[int, int] = (1080, 1920
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Legenda,{brand['font_body']},{fontsize},{primary},{primary},{back},{back},"
-        f"-1,0,0,0,100,100,0,0,3,{outline},0,2,{mlr},{mlr},{mv},1\n\n"
+        f"Style: Legenda,{brand['font_body']},{p['fontsize']},{primary},{primary},{outline_col},{back},"
+        f"-1,0,0,0,100,100,0,0,{border},{borda},0,{p['an']},{p['mlr']},{p['mlr']},{p['mv']},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
     events = []
-    for p in phrases:
-        text = _escape(p["text"])
+    for ph in phrases:
+        if estilo is None:
+            text, tags = _escape(ph["text"]), ""
+        else:
+            import legendas_imagem  # mesmo layout (Pillow) das legendas por imagem
+            _, _, fs, lines, _ = legendas_imagem.layout(ph["text"], size, p)
+            text = "\\N".join(lines)
+            tags = f"\\fs{fs}" if fs != p["fontsize"] else ""
         if not text:
             continue
         events.append(
-            f"Dialogue: 0,{_ts(p['start'])},{_ts(p['end'])},Legenda,,0,0,0,,"
-            f"{{\\fad({FADE_MS},{FADE_MS})}}{text}"
+            f"Dialogue: 0,{_ts(ph['start'])},{_ts(ph['end'])},Legenda,,0,0,0,,"
+            f"{{\\fad({FADE_MS},{FADE_MS}){tags}}}{text}"
         )
     return header + "\n".join(events) + ("\n" if events else "")
 

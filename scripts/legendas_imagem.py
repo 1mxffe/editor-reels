@@ -4,7 +4,10 @@ Cada frase (a mesma lista que alimentaria o ASS, ja com cortes e edicoes) vira u
 PNG RGBA transparente do tamanho exato da saida, desenhado com Pillow e as fontes
 Poppins do repositorio, replicando o estilo de ``captions.to_ass``: Poppins Bold,
 cor ``fg``, faixa ``bg`` translucida por linha (BorderStyle 3, alpha 0x73), base
-centralizada a ``MarginV`` do rodape, ate 2 linhas dentro da largura util.
+centralizada a ``MarginV`` do rodape, ate 2 linhas dentro da largura util. Com
+``estilo`` (estilo.json) as medidas, a caixa (faixa, pilula arredondada) ou o
+contorno, a posicao e o tamanho vem da mesma descricao do ASS
+(``captions.estilo_legenda``), e o ASS usa este mesmo ``layout``.
 
 As frases sao compostas por UMA entrada ffmpeg: um roteiro do demuxer ``concat``
 (PNG transparente nos intervalos, PNG da frase durante a frase) e um unico
@@ -45,10 +48,9 @@ def _rgb(hex_rgb: str) -> tuple[int, int, int]:
     return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
 
 
-def _metrics(size: tuple[int, int]) -> dict:
-    k = size[1] / 1920
-    return {"fontsize": round(64 * k), "outline": round(14 * k),
-            "mlr": round(72 * k), "mv": round(340 * k)}
+def _metrics(size: tuple[int, int], estilo: dict | None = None) -> dict:
+    """Medidas do desenho: a mesma descricao que o ASS usa (``captions.estilo_legenda``)."""
+    return captions.estilo_legenda(estilo, None, size)
 
 
 def _win_metrics() -> tuple[int, int, int]:
@@ -94,54 +96,76 @@ def wrap(text: str, font, max_width: float, max_lines: int = MAX_LINES) -> list[
     return None  # nao cabe: o chamador reduz a fonte
 
 
-def layout(text: str, size: tuple[int, int]):
-    m = _metrics(size)
-    max_width = size[0] - 2 * m["mlr"] - 2 * m["outline"]
+def layout(text: str, size: tuple[int, int], params: dict | None = None):
+    """(fonte, ascendente, tamanho, linhas, medidas) da frase; ``params`` vem de
+    ``captions.estilo_legenda`` (``None`` = faixa de sempre). O ASS com estilo usa
+    este mesmo layout, entao as quebras e o tamanho sao iguais nos dois caminhos."""
+    m = params if params is not None else _metrics(size)
+    max_width = size[0] - 2 * m["mlr"] - 2 * m["outline"] - 2 * m.get("contorno", 0)
+    max_lines = m.get("max_lines", MAX_LINES)
     fs = m["fontsize"]
     while True:
         font, ascent = _font(fs)
-        lines = wrap(text, font, max_width)
+        lines = wrap(text, font, max_width, max_lines)
         if lines is not None or fs <= 8:
             break
         fs -= 1
     if lines is None:
-        lines = wrap(text, font, 10 ** 9)  # ultimo recurso
+        lines = wrap(text, font, 10 ** 9, max_lines)  # ultimo recurso
     return font, ascent, fs, lines, m
 
 
-def draw(text: str, brand: dict, size: tuple[int, int]):
+def draw(text: str, brand: dict, size: tuple[int, int], estilo: dict | None = None, *,
+         params: dict | None = None):
+    """PNG RGBA da frase. ``estilo=None``: a faixa de sempre (igual ao golden).
+    ``params``: ``captions.estilo_legenda`` ja calculado (evita refazer por frase)."""
     Image, ImageDraw, _ = _pil()
     img = Image.new("RGBA", size, (0, 0, 0, 0))
-    font, ascent, line_h, lines, m = layout(text, size)
+    p = params if params is not None else captions.estilo_legenda(estilo, brand, size)
+    font, ascent, line_h, lines, m = layout(text, size, p)
     if not lines:
         return img
-    fg, bg = _rgb(brand["fg"]), _rgb(brand["bg"])
+    fg, bg = _rgb(p["fg"]), _rgb(p["bg"])
     pad = m["outline"]
     w, h = size
-    bottom = h - m["mv"]
-    top0 = bottom - line_h * len(lines)
-    for i, line in enumerate(lines):  # uma faixa por linha; sobreposicao escurece, como no libass
-        lw = font.getlength(line)
-        x0, y0 = (w - lw) / 2, top0 + i * line_h
-        box = Image.new("RGBA", size, (0, 0, 0, 0))
-        ImageDraw.Draw(box).rectangle(
-            [round(x0 - pad), round(y0 - pad), round(x0 + lw + pad) - 1, round(y0 + line_h + pad) - 1],
-            fill=(*bg, 255 - 0x73))
-        img.alpha_composite(box)
+    if p["vertical"] == "meio":  # bloco centrado na tela, como o \an5 do libass
+        top0 = (h - line_h * len(lines)) / 2
+    else:
+        top0 = h - m["mv"] - line_h * len(lines)
+
+    def x_de(lw: float) -> float:
+        return float(m["mlr"]) if p["alinhar"] == "esquerda" else (w - lw) / 2
+
+    if p["caixa"]:
+        alpha = 255 - p["alpha"]
+        for i, line in enumerate(lines):  # uma caixa por linha; sobreposicao escurece, como no libass
+            lw = font.getlength(line)
+            x0, y0 = x_de(lw), top0 + i * line_h
+            rect = [round(x0 - pad), round(y0 - pad), round(x0 + lw + pad) - 1,
+                    round(y0 + line_h + pad) - 1]
+            box = Image.new("RGBA", size, (0, 0, 0, 0))
+            if p["caixa"] == "pilula":
+                ImageDraw.Draw(box).rounded_rectangle(rect, radius=p["raio"], fill=(*bg, alpha))
+            else:
+                ImageDraw.Draw(box).rectangle(rect, fill=(*bg, alpha))
+            img.alpha_composite(box)
     td = ImageDraw.Draw(img)
+    stroke = {"stroke_width": p["contorno"], "stroke_fill": (*bg, 255)} if p["contorno"] else {}
     for i, line in enumerate(lines):
         lw = font.getlength(line)
-        td.text(((w - lw) / 2, top0 + i * line_h + ascent), line, font=font,
-                fill=(*fg, 255), anchor="ls")
+        td.text((x_de(lw), top0 + i * line_h + ascent), line, font=font,
+                fill=(*fg, 255), anchor="ls", **stroke)
     return img
 
 
-def write_track(phrases: list[dict], brand: dict, size: tuple[int, int], tmpdir: Path) -> Path:
+def write_track(phrases: list[dict], brand: dict, size: tuple[int, int], tmpdir: Path,
+                estilo: dict | None = None) -> Path:
     """Grava os PNGs e o roteiro concat em ``tmpdir``; devolve o roteiro."""
     Image, _, _ = _pil()
     tmpdir = Path(tmpdir)
     blank = tmpdir / "vazio.png"
     Image.new("RGBA", size, (0, 0, 0, 0)).save(blank)
+    params = captions.estilo_legenda(estilo, brand, size)
     entries: list[tuple[Path, float]] = []
     t = 0.0
     for i, p in enumerate(phrases):
@@ -153,7 +177,7 @@ def write_track(phrases: list[dict], brand: dict, size: tuple[int, int], tmpdir:
         if start > t:
             entries.append((blank, start - t))
         png = tmpdir / f"frase-{i:04d}.png"
-        draw(p["text"], brand, size).save(png)
+        draw(p["text"], brand, size, params=params).save(png)
         entries.append((png, end - start))
         t = end
     entries.append((blank, 1.0))
