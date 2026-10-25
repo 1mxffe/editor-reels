@@ -9,6 +9,9 @@ Procedimento completo. Roda a partir da raiz do repositório; todo Python com
 `python3 -I`. Formatos e zona segura em `references/formatos-reel.md`; regras de
 legenda em `references/legendas.md`; cards de gráfico em `references/graficos.md`.
 
+Existe também uma tela (`Abrir Editor.command`, ver `COMO-USAR.md`) que faz o mesmo
+fluxo sem o Claude Code; este procedimento continua válido para quem edita pelo Claude Code.
+
 ## Regras que não mudam
 
 - **O texto é do escritório.** O escritório revisa o texto antes de gravar;

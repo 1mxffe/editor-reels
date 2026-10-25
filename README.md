@@ -19,6 +19,20 @@ porta e `--sem-navegador` só imprime o endereço). Um segundo lançamento reabr
 mesma página (`projects/.app.json`); o servidor fecha sozinho 30 minutos depois de
 a página parar de dar sinal, se nenhuma tarefa ou envio estiver em andamento.
 
+## Usar pela tela
+
+Resumo: dois cliques em `Abrir Editor.command`, e a página guia o Reel inteiro,
+sem terminal. Em ordem: **Vídeo** (nome e envio), **Cortes** (a fala é reconhecida e
+você decide o que sai; dá para marcar várias palavras de uma vez), **Legendas**
+(conferir o texto), **Estilo** (paleta, fonte, legenda e efeitos, com quadros de
+exemplo do seu vídeo), **Preview**, **Gráficos** (opcional), **Capa** (opcional) e
+**Final** (Reel 1080x1920 pronto). Gráficos e Capa são opcionais: o Final sai sem eles.
+Tudo o que você faz fica guardado na pasta `projects/<reel>/`. Passo a passo,
+instalação e o que fazer se algo falhar: **[COMO-USAR.md](COMO-USAR.md)**.
+
+O fluxo pelo Claude Code (próxima seção) continua valendo e usa os mesmos
+arquivos de `projects/`: dá para começar numa e terminar na outra.
+
 ## Requisitos
 
 - Mac ou Linux

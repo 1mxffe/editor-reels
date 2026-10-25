@@ -1,5 +1,13 @@
 # Interface web do Editor de Reel — Design
 
+> **Implementado em 2026-10-25.** Desvios principais em relação a este texto:
+> - Gráficos e Capa são opcionais: o Final sai sem eles.
+> - Paletas: as variações de "mais parecido com este" são só visuais (cores e tamanhos).
+> - Sem libass no ffmpeg, as legendas saem por imagem (modo alternativo).
+> - Nesse modo a pílula da legenda tem cantos retos no `.ass`.
+> - O token de acesso vai na URL do vídeo (o `<video>` não manda cabeçalhos).
+> - Tolerância de inatividade de 30 minutos antes de o servidor fechar.
+
 Data: 2026-10-23 · Status: aguardando revisão do usuário
 
 ## Objetivo

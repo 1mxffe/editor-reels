@@ -81,8 +81,8 @@ programa das imagens da capa. Pode levar alguns minutos.
 
 Pronto. Pode fechar o Terminal.
 
-> O navegador que desenha os gráficos é instalado depois, pela própria página do
-> editor: botão **Instalação**, no alto da tela.
+> O navegador que desenha os gráficos e a capa é instalado depois, pela própria
+> página do editor (veja "Instalar o navegador de gráficos" mais abaixo).
 
 ---
 
@@ -120,14 +120,66 @@ está pronto; o que você já fez fica guardado, mesmo se fechar e abrir de novo
 1. **Vídeo** — dê um nome ao Reel e envie o vídeo gravado (arraste o arquivo
    para a área indicada ou clique para escolher).
 2. **Cortes** — o editor escreve o texto do vídeo e sugere tirar pausas,
-   "éééé" e frases repetidas. Você confere e decide o que sai.
+   "éééé" e frases repetidas. Você confere e decide o que sai. Para cortar uma
+   palavra, clique nela. Para várias de uma vez, arraste sobre elas, ou clique na
+   primeira e segure `Shift` ao clicar na última, ou ligue **Marcar várias palavras**
+   (no celular ou no trackpad, é o jeito mais fácil).
 3. **Legendas** — confira o texto que aparece na tela e corrija o que precisar.
-4. **Estilo** — cores, letras e efeitos *(chega em breve)*.
+   Se a janela de Instalação disser "Legendas: usando o modo alternativo", está tudo
+   certo: as legendas saem iguais, só que desenhadas de outro jeito (as pílulas
+   ficam com cantos retos).
+4. **Estilo** — cores, letras e efeitos (veja a seção abaixo).
 5. **Preview** — gere e assista a uma prévia do Reel.
-6. **Gráficos** — cards de destaque com números, opcionais *(chega em breve)*.
-7. **Capa** — quadro do vídeo e texto da capa *(chega em breve)*.
+6. **Gráficos** — cards de destaque com números, opcionais. Se você não quiser
+   nenhum, pule: o Final sai sem eles.
+7. **Capa** — opcional. Clique em **Achar quadros**, escolha o quadro em que você
+   sorri, escreva o gancho (poucas palavras, em maiúsculas) e clique em **Gerar capa**.
+   A imagem sai em 1080 × 1920.
 8. **Final** — gere o Reel pronto. O botão **Abrir pasta** mostra o arquivo no
    Finder.
+
+### O passo Estilo
+
+Quatro abas com cartões. Cada cartão mostra um quadro do seu próprio vídeo já com
+aquele estilo:
+
+- **Paletas** — as cores do Reel (fundo, texto, destaque).
+- **Fontes** — as letras disponíveis. Só aparecem as que o editor consegue usar hoje.
+- **Legendas** — o desenho da legenda; abaixo dos cartões, escolha a posição
+  (em baixo ou no meio) e o tamanho (pequena, média ou grande).
+- **Efeitos** — pequenos efeitos animados (calendário, palavra em destaque,
+  polaroides...). Clique em **Adicionar ao vídeo**, preencha o formulário (quando
+  entra, quanto dura) e salve. Os efeitos adicionados aparecem numa lista, com
+  botão para remover.
+
+Em cada cartão há dois botões: **Usar** marca o estilo para o seu Reel (ainda não
+muda nada) e **Mais parecido com este** mostra variações bem próximas, só de cor
+ou de tamanho. Quando estiver satisfeito, clique em **Aplicar estilo**: o editor
+refaz o preview com as escolhas. Enquanto você não aplicar, nada é gravado.
+
+**Para ter mais fontes:** copie o arquivo `.ttf` para a pasta `assets/fonts` do
+editor. Hoje o editor só desenha com a Poppins; outra fonte aparece na aba, mas
+com o aviso de que ainda não pode ser usada.
+
+**Para ter mais paletas, legendas ou efeitos:** copie a pasta de um item
+parecido dentro de `banco/` (por exemplo `banco/paletas/marca`), dê um novo nome
+à cópia e troque o nome e os valores no arquivo `manifesto.json`. O passo a passo
+completo está em `banco/README.md`. Item com erro simplesmente não aparece (a tela
+avisa quantos foram ignorados e por quê).
+
+### Instalar o navegador de gráficos
+
+Gráficos, efeitos e capa são desenhados por um navegador interno (Chromium).
+Se o botão **Instalação**, no alto da página, mostrar **Instalar o navegador de
+gráficos**, clique nele e espere alguns minutos com a página aberta. Se preferir
+pelo Terminal (precisa do `node`, da parte 1), cole:
+
+```
+npm i -g playwright && npx playwright install chromium
+```
+
+Sem ele, o editor continua funcionando; só ficam indisponíveis efeitos, gráficos
+e capa.
 
 ---
 
@@ -146,7 +198,17 @@ Reel, com o nome `entrada`.
 
 ---
 
-## 5. Se algo der errado
+## 5. Limites
+
+- Um Reel de cada vez: trabalhe em um projeto por vez, numa só pessoa.
+- Vídeos `.mp4`, `.mov`, `.m4v`, `.webm` ou `.mkv`, até 4 GB.
+- Efeitos têm duração máxima (de segundos) e ficam numa área segura da tela,
+  longe do topo e da faixa da legenda; o formulário avisa se algo passar do limite.
+- Se mudar os cortes ou as legendas depois de gerar o preview, a tela avisa que o
+  preview está desatualizado: gere de novo.
+- Nada é publicado sozinho: você baixa o Reel e a capa e posta por conta própria.
+
+## 6. Se algo der errado
 
 **A página não abre.**
 Olhe a janela do Terminal que abriu com o editor: ela mostra o endereço da
@@ -171,6 +233,11 @@ já fez continua guardado.
 - Se disser que o arquivo é grande demais, o limite é 4 GB.
 - Se aparecer um aviso sobre o conversor de vídeo, abra o botão **Instalação**
   no alto da página e siga o que ele indica.
+
+**O editor fechou sozinho.**
+Ele fecha depois de 30 minutos sem a página aberta, se não houver trabalho rodando.
+Nada se perde: dê dois cliques em `Abrir Editor` e continue de onde parou. Com a página
+aberta, ele não fecha.
 
 **Um passo mostra erro.**
 Clique em **Detalhes** para ver o que aconteceu e tente de novo. Se continuar,
