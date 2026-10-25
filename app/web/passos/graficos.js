@@ -291,7 +291,9 @@ function abaCards(ctx, estadoTela) {
   function pintar() {
     const cards = estadoTela.cards.slice().sort((a, b) => a.at - b.at);
     vazio.hidden = cards.length > 0;
-    lista.replaceChildren(...cards.map((c) => {
+    lista.replaceChildren(...cards.map((cru) => {
+      // efeito do banco (adicionado no passo Estilo): sem titulo/texto proprios; so liga/desliga e remove
+      const c = cru.efeito && !cru.title ? { ...cru, title: `Efeito: ${cru.efeito.replace(/-/g, ' ')}`, body: null, material: null } : cru;
       const fica = estadoTela.decisoes[c.id] !== 'drop';
       const mat = c.material && estadoTela.materiais.find((m) => m.rel === c.material);
       const chave = el('button', {
@@ -308,7 +310,7 @@ function abaCards(ctx, estadoTela) {
           el('span', { class: 'suave card-quando' }, `Aos ${relogio(c.at)} · por ${segundos(c.dur)}`)),
         el('div', { class: 'card-acoes' },
           chave,
-          el('button', { type: 'button', class: 'botao botao-secundario card-editar', 'aria-label': `Editar card "${c.title}"`,
+          cru.efeito && !cru.title ? null : el('button', { type: 'button', class: 'botao botao-secundario card-editar', 'aria-label': `Editar card "${c.title}"`,
             onclick: () => abrirForm(c) }, icone('lapis')),
           el('button', { type: 'button', class: 'botao botao-secundario card-remover', 'aria-label': `Remover card "${c.title}"`,
             onclick: () => remover(c) }, icone('lixo'))));

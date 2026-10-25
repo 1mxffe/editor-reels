@@ -12,6 +12,8 @@ export const ROTULOS = {
   final: 'Montando a versão final',
   'capa-candidatos': 'Procurando quadros no vídeo',
   capa: 'Desenhando a capa',
+  quadros: 'Preparando os exemplos',
+  'aplicar-estilo': 'Aplicando o estilo e montando o preview',
 };
 const FALHAS = {
   transcrever: 'Não deu para reconhecer a fala.',
@@ -20,6 +22,8 @@ const FALHAS = {
   final: 'Não deu para montar a versão final.',
   'capa-candidatos': 'Não deu para preparar os quadros.',
   capa: 'Não deu para gerar a capa.',
+  quadros: 'Não deu para preparar os exemplos.',
+  'aplicar-estilo': 'Não deu para aplicar o estilo.',
 };
 // o que comeca sozinho quando o anterior termina bem
 const SEGUINTE = { transcrever: 'cortes' };
@@ -139,7 +143,7 @@ async function seguir(slug, id) {
       continue;
     }
     r.seguindo = null;
-    if (job.estado === 'ok') r.versoes[job.tipo] = job.fim || String(Date.now());
+    if (job.estado === 'ok') r.versoes[job.tipo === 'aplicar-estilo' ? 'preview' : job.tipo] = job.fim || String(Date.now());
     const prox = job.estado === 'ok' && SEGUINTE[job.tipo];
     if (prox) {
       try {

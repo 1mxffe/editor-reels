@@ -26,6 +26,15 @@ const REGRAS = [
   [/precisa ser um dos materiais|material (n[aã]o encontrado|fora|precisa|maior|ileg)|n[aã]o [eé] uma imagem .* v[aá]lida/i,
     (m, t) => doCard(t, 'A imagem escolhida não pode ser usada. Escolha outra dos materiais.')],
   [/confer[eê]ncia dos gr[aá]ficos demorou/i, () => 'Demorou demais para conferir os cards. Tente de novo.'],
+  // ---- efeitos do banco (graficos.json) e estilo
+  [/depois do fim do v[ií]deo \(([\d.,]+) s\)/i,
+    (m) => `O efeito passa do fim do vídeo, que tem ${m[1].replace('.', ',')} segundos. Comece mais cedo ou diminua a duração.`],
+  [/a dura[cç][aã]o \(dur\).*entre ([\d.]+) e ([\d.]+) s/i,
+    (m) => `A duração desse efeito precisa ficar entre ${m[1].replace('.', ',')} e ${m[2].replace('.', ',')} segundos.`],
+  [/o in[ií]cio \(at\)/i, () => 'O momento precisa ser um número de segundos (0 ou mais).'],
+  [/depois do fim do v[ií]deo cortado/i, () => 'O quadro do vídeo escolhido fica depois do fim do vídeo cortado.'],
+  [/precisam ter a mesma quantidade de itens/i, () => 'Os campos em lista precisam ter a mesma quantidade de itens.'],
+  [/efeito desconhecido/i, () => 'Esse efeito não está mais no banco. Recarregue a página.'],
   // ---- materiais
   [/tipo de arquivo n[aã]o aceito/i, () => 'Esse tipo de arquivo não serve. Envie PNG, JPG, WEBP, SVG ou MP4.'],
   [/conte[uú]do n[aã]o [eé] um arquivo/i, () => 'Esse arquivo não é o que o nome diz. Envie de novo em outro formato.'],

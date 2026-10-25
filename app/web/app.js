@@ -10,6 +10,7 @@ import './passos/instalacao.js';
 import './passos/video.js';
 import './passos/cortes.js';
 import './passos/legendas.js';
+import './passos/estilo.js';
 import './passos/preview.js';
 import './passos/graficos.js';
 import './passos/capa.js';

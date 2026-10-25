@@ -5,7 +5,9 @@ Uso: python3 -I tests/js/serve_for_test.py <config.json>
 config: {"root": dir dos projetos, "brand": caminho de um brand.json de teste,
          "max_upload": bytes, "doctor": {"estado": "...", "itens": [itens crus do doctor]},
          "test_mode": bool (padrao false; liga os dublês de teste do servidor, como a
-         transcricao falsa de REEL_APP_FAKE_TRANSCRIBE=1 e o "Abrir pasta" que so registra)}
+         transcricao falsa de REEL_APP_FAKE_TRANSCRIBE=1 e o "Abrir pasta" que so registra),
+         "banco_raiz": pasta de um banco de teste para GET /api/banco (so a lista; as tarefas
+         continuam no banco real), "fonts_dir": pasta de fontes de teste}
 Imprime UMA linha JSON {"base", "url", "token", "port"} e serve ate receber SIGTERM
 ou fechar o stdin. O doctor e substituido pelo resultado fixo do config (o real
 depende da maquina); a marca aponta para um arquivo de teste, nunca para brand/brand.json.
@@ -34,6 +36,12 @@ def main() -> None:
     srv = server.make_server(Path(cfg["root"]), token,
                              max_upload=int(cfg.get("max_upload", 4 * 1024 ** 3)),
                              test_mode=bool(cfg.get("test_mode", False)))
+    if cfg.get("banco_raiz"):  # banco de teste (itens hostis ou invalidos) so para GET /api/banco
+        import estilo_api
+        estilo_api.BANCO_RAIZ = Path(cfg["banco_raiz"])
+    if cfg.get("fonts_dir"):
+        import estilo_api
+        estilo_api.FONTS_DIR = Path(cfg["fonts_dir"])
     if cfg.get("brand"):
         srv.app.brand_path = Path(cfg["brand"])
     porta = srv.server_address[1]
