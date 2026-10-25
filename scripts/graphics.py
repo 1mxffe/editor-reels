@@ -38,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import base64  # noqa: E402
 import functools  # noqa: E402
 import json  # noqa: E402
+import math  # noqa: E402
 import os  # noqa: E402
 import re  # noqa: E402
 import shutil  # noqa: E402
@@ -75,6 +76,7 @@ SPEC_KEYS = {"id", "title", "body", "at", "dur", "material"}
 EFEITO_KEYS = {"id", "efeito", "campos", "at", "dur"}
 TEXTO_MAX = 200       # campo de texto sem "max" no manifesto
 QUADROS_MAX = 6       # quadros do video extraidos por efeito
+DUR_TETO = 30.0       # nenhum efeito passa disso, mesmo que o manifesto deixe
 QUADRO_LARGURA = 720  # px do quadro extraido (largura)
 PESOS_PADRAO = (400, 600, 800)
 _HEX = re.compile(r"#[0-9a-fA-F]{6}")
@@ -209,11 +211,18 @@ def _validate_efeito(spec: dict, project: Path | None, where: str) -> dict:
     campos = validar_campos(item, spec.get("campos"), project, where)
     at, dur = spec.get("at"), spec.get("dur")
     if not (common.is_num(at) and at >= 0):
-        raise GraphicsError(f"{where}: at deve ser número >= 0 (segundos do vídeo cortado)")
+        raise GraphicsError(f"{where}: o início (at) precisa ser um número de segundos, 0 ou mais "
+                            "(contados no vídeo já cortado)")
+    if common.is_num(dur) and dur > DUR_TETO:
+        raise GraphicsError(f"{where}: a duração (dur) passa do limite de {DUR_TETO:g} s")
     dmin, dmax = item["duracao"]["min"], item["duracao"]["max"]
     if not (common.is_num(dur) and dmin <= dur <= dmax):
-        raise GraphicsError(f"{where}: dur deve ser número entre {dmin:g} e {dmax:g} s "
-                            f"(máximo do efeito {item['nome']}: {dmax:g} s)")
+        raise GraphicsError(f"{where}: a duração (dur) precisa ser um número entre {dmin:g} e "
+                            f"{dmax:g} s (máximo do efeito {item['nome']}: {dmax:g} s)")
+    total = _duracao_cortada(project)
+    if total is not None and at + dur > total + 1 / FPS:
+        raise GraphicsError(f"{where}: o efeito vai de {at:g} s a {at + dur:g} s, depois do fim do "
+                            f"vídeo ({total:.2f} s); comece antes ou diminua a duração")
     card = {"id": cid, "efeito": item["id"], "campos": campos, "at": float(at), "dur": float(dur),
             "title": _rotulo(item, campos), "body": None, "material": None}
     if item["id"] == EFEITO_LEGADO:
@@ -336,26 +345,43 @@ def validar_campos(item: dict, campos, project: Path | None, where: str) -> dict
     return out
 
 
-def _tempo_bruto(root: Path, s: float, where: str) -> float:
-    """Segundo da linha do tempo CORTADA -> segundo do video bruto (via cortes.json).
-    Sem transcricao/cortes legiveis, o segundo vale direto no video bruto."""
+def _trechos(root: Path | None) -> list | None:
+    """Trechos mantidos do video bruto (transcricao.json + cortes.json), ou None se nao
+    der para saber (arquivos ausentes ou ilegiveis)."""
+    if root is None:
+        return None
     try:
-        dur = float(json.loads((root / "transcricao.json").read_text("utf-8"))["duration"])
-        cuts = json.loads((root / "cortes.json").read_text("utf-8"))["cuts"]
+        dur = float(json.loads((Path(root) / "transcricao.json").read_text("utf-8"))["duration"])
+        cuts = json.loads((Path(root) / "cortes.json").read_text("utf-8"))["cuts"]
         keep = cutmod.keep_segments(dur, cuts)
-    except (OSError, ValueError, KeyError, TypeError):
-        return s
-    if not keep:
-        return s
-    total = sum(b - a for a, b in keep)
-    if s > total + 1e-6:
-        raise GraphicsError(f"{where}: quadro:{s:g} passa do fim do vídeo cortado ({total:.2f} s)")
-    acc = 0.0
-    for a, b in keep:
-        if s <= acc + (b - a):
-            return min(b - 0.001, a + (s - acc))
-        acc += b - a
-    return keep[-1][1] - 0.001
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return keep or None
+
+
+def _duracao_cortada(project: Path | None) -> float | None:
+    keep = _trechos(project)
+    return None if keep is None else sum(b - a for a, b in keep)
+
+
+@functools.lru_cache(maxsize=32)
+def _duracao_video_cache(video: str, mtime: float, size: int) -> float | None:
+    try:
+        out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                              "-of", "csv=p=0", video], capture_output=True, text=True, timeout=30)
+        dur = float(out.stdout.strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return dur if dur > 0 and math.isfinite(dur) else None
+
+
+def _duracao_video(video: Path) -> float | None:
+    """Duracao do video bruto pelo ffprobe (lista, sem shell), ou None se nao der."""
+    try:
+        st = Path(video).stat()
+    except OSError:
+        return None
+    return _duracao_video_cache(str(video), st.st_mtime, st.st_size)
 
 
 def _quadro(v: str, project: Path | None, where: str, rot: str) -> dict:
@@ -373,7 +399,25 @@ def _quadro(v: str, project: Path | None, where: str, rot: str) -> dict:
     if not video.is_relative_to(root):
         raise GraphicsError(f"{where}: {rot}: o vídeo do projeto está fora da pasta do projeto")
     s = float(m.group(1))
-    return {"quadro": round(_tempo_bruto(root, s, where), 3), "segundo": s, "video": video}
+    keep = _trechos(root)
+    if keep is not None:  # segundo do video cortado -> segundo do video bruto
+        total = sum(b - a for a, b in keep)
+        if s > total + 1e-6:
+            raise GraphicsError(f"{where}: {rot}: o segundo {s:g} está depois do fim do vídeo "
+                                f"cortado ({total:.2f} s)")
+        acc, bruto = 0.0, keep[-1][1] - 0.001
+        for a, b in keep:
+            if s <= acc + (b - a):
+                bruto = min(b - 0.001, a + (s - acc))
+                break
+            acc += b - a
+    else:  # sem cortes conhecidos: o segundo vale no video bruto
+        total = _duracao_video(video)
+        if total is not None and s > total:
+            raise GraphicsError(f"{where}: {rot}: o segundo {s:g} está depois do fim do vídeo "
+                                f"({total:.2f} s)")
+        bruto = s
+    return {"quadro": round(bruto, 3), "segundo": s, "video": video}
 
 
 def load_cards(project: Path) -> list[dict]:
@@ -530,7 +574,7 @@ def _data_uri(path: Path, what: str) -> str:
     return f"data:{IMAGE_TYPES[Path(path).suffix.lower()]};base64," + base64.b64encode(raw).decode("ascii")
 
 
-def extrair_quadro(video: Path, t: float, what: str = "quadro") -> str:
+def extrair_quadro(video: Path, t: float, what: str = "quadro", segundo: float | None = None) -> str:
     """Um quadro do video em ``t`` s (bruto) como PNG data: URI (ffmpeg, lista, sem shell)."""
     cmd = ["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{max(0.0, float(t)):.3f}", "-i", str(video),
            "-frames:v", "1", "-vf", f"scale={QUADRO_LARGURA}:-2", "-f", "image2pipe",
@@ -543,9 +587,13 @@ def extrair_quadro(video: Path, t: float, what: str = "quadro") -> str:
         raise GraphicsError(f"{what}: tempo esgotado ao tirar o quadro do vídeo") from None
     except OSError as e:
         raise GraphicsError(f"{what}: não foi possível executar o ffmpeg: {e}") from e
+    s = t if segundo is None else segundo
+    if proc.returncode == 0 and not proc.stdout:  # pediu um instante que o video nao tem
+        raise GraphicsError(f"{what}: o segundo {s:g} está depois do fim do vídeo; "
+                            "escolha um momento dentro do vídeo")
     if proc.returncode != 0 or not proc.stdout.startswith(b"\x89PNG\r\n\x1a\n"):
-        tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or ["sem quadro"]
-        raise GraphicsError(f"{what}: não foi possível tirar o quadro de {t:.2f} s do vídeo ({tail[0]})")
+        raise GraphicsError(f"{what}: não foi possível tirar a imagem do segundo {s:g} do vídeo "
+                            "(o arquivo de vídeo pode estar danificado)")
     if len(proc.stdout) > MATERIAL_MAX_BYTES:
         raise GraphicsError(f"{what}: quadro do vídeo grande demais")
     return "data:image/png;base64," + base64.b64encode(proc.stdout).decode("ascii")
@@ -559,7 +607,7 @@ def _campos_pagina(campos: dict, what: str) -> dict:
         if isinstance(v, Path):
             return _data_uri(v, what)
         if isinstance(v, dict) and "quadro" in v:
-            return extrair_quadro(v["video"], v["quadro"], what)
+            return extrair_quadro(v["video"], v["quadro"], what, v.get("segundo"))
         return v
     return {k: conv(v) for k, v in campos.items()}
 
@@ -713,8 +761,8 @@ def inspect_effect(efeito_id: str, campos: dict, brand: dict, *, project: Path |
     item = item_efeito(efeito_id, where)
     norm = validar_campos(item, campos, project, where)
     dur = item["duracao"]["padrao"] if dur is None else dur
-    if not (common.is_num(dur) and item["duracao"]["min"] <= dur <= item["duracao"]["max"]):
-        raise GraphicsError(f"{where}: dur deve ser número entre {item['duracao']['min']:g} e "
+    if not (common.is_num(dur) and item["duracao"]["min"] <= dur <= min(item["duracao"]["max"], DUR_TETO)):
+        raise GraphicsError(f"{where}: a duração (dur) precisa ser um número entre {item['duracao']['min']:g} e "
                             f"{item['duracao']['max']:g} s")
     reason = renderer_status()
     if reason:

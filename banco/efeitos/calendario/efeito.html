@@ -38,6 +38,7 @@
   .dia.marcado b { color: var(--bg); }
   .leg { display: flex; align-items: center; gap: 18px; margin: 26px 14px 0; font-weight: 400; font-size: 36px;
          line-height: 1.3; color: var(--fg-soft); }
+  .leg span { min-width: 0; overflow-wrap: anywhere; }
   .leg i { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); }
 </style>
 </head>
@@ -142,13 +143,36 @@ const FX = (() => {
     if (pai) pai.appendChild(e);
     return e;
   }
-  // Reduz a fonte ate o texto caber na largura (uma linha); devolve o tamanho final.
-  function fit(e, max, min, largura) {
-    let s = max;
+  // Reduz a fonte ate o texto caber na largura (uma linha). Se nem no tamanho minimo
+  // couber: quebra a linha (padrao) ou termina em reticencias. Devolve o tamanho final.
+  function fit(e, max, min, largura, modo = 'quebra') {
+    for (const k of ['whiteSpace', 'overflowWrap', 'maxWidth', 'minWidth', 'overflow', 'textOverflow']) e.style[k] = '';
+    let s = Math.round(max);
     e.style.fontSize = s + 'px';
     while (s > min && e.scrollWidth > largura) { s -= 2; e.style.fontSize = s + 'px'; }
+    if (e.scrollWidth > largura) {
+      e.style.maxWidth = largura + 'px';
+      e.style.minWidth = '0';
+      if (modo === 'reticencias') {
+        e.style.overflow = 'hidden';
+        e.style.textOverflow = 'ellipsis';
+        e.style.whiteSpace = 'nowrap';
+      } else {
+        e.style.whiteSpace = 'normal';
+        e.style.overflowWrap = 'anywhere';
+      }
+    }
     return s;
   }
+  // Encolhe o desenho (aplicar(k), k de 1 ate o piso legivel) ate cabe() dizer sim.
+  function encaixar(aplicar, cabe, piso = 0.6) {
+    let k = 1;
+    aplicar(k);
+    while (!cabe() && k > piso + 1e-9) { k = Math.max(piso, k - 0.05); aplicar(k); }
+    return k;
+  }
+  // Base (em px de 1080x1920) de uma caixa ja montada, sem as transformacoes de animacao.
+  const fundo = (e) => e.offsetTop + e.offsetHeight;
   async function img(src, pai, cls) {
     const s = String(src || '');
     if (!/^(data:image\/|blob:)/.test(s)) throw new Error('imagem precisa vir como data: ou blob:');
@@ -159,7 +183,7 @@ const FX = (() => {
     return i;
   }
   const f = (x, n = 3) => Number(x).toFixed(n);
-  return { easeIn, easeOut, clamp, rgb, rgba, base, env, prog, texto, el, svg, fit, img, f,
+  return { easeIn, easeOut, clamp, rgb, rgba, base, env, prog, texto, el, svg, fit, encaixar, fundo, img, f,
            get D() { return D; } };
 })();
 
@@ -182,8 +206,8 @@ window.setup = async (d) => {
   const total = [31, bissexto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
   const folha = document.getElementById('folha');
   const cab = FX.el('div', 'cab', folha);
-  FX.texto(FX.el('span', 'mes t-titulo', cab), c.mes.charAt(0).toUpperCase() + c.mes.slice(1));
-  FX.texto(FX.el('span', 'ano t-titulo', cab), String(ano));
+  FX.el('span', 'mes t-titulo', cab).textContent = c.mes.charAt(0).toUpperCase() + c.mes.slice(1);
+  FX.el('span', 'ano t-titulo', cab).textContent = String(ano);
   const grade = FX.el('div', 'grade t-corpo', folha);
   for (const s of ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']) FX.el('div', 'sem', grade).textContent = s;
   const marcados = new Set((c.dias || []).filter((x) => x >= 1 && x <= total));

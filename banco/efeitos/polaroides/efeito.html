@@ -132,13 +132,36 @@ const FX = (() => {
     if (pai) pai.appendChild(e);
     return e;
   }
-  // Reduz a fonte ate o texto caber na largura (uma linha); devolve o tamanho final.
-  function fit(e, max, min, largura) {
-    let s = max;
+  // Reduz a fonte ate o texto caber na largura (uma linha). Se nem no tamanho minimo
+  // couber: quebra a linha (padrao) ou termina em reticencias. Devolve o tamanho final.
+  function fit(e, max, min, largura, modo = 'quebra') {
+    for (const k of ['whiteSpace', 'overflowWrap', 'maxWidth', 'minWidth', 'overflow', 'textOverflow']) e.style[k] = '';
+    let s = Math.round(max);
     e.style.fontSize = s + 'px';
     while (s > min && e.scrollWidth > largura) { s -= 2; e.style.fontSize = s + 'px'; }
+    if (e.scrollWidth > largura) {
+      e.style.maxWidth = largura + 'px';
+      e.style.minWidth = '0';
+      if (modo === 'reticencias') {
+        e.style.overflow = 'hidden';
+        e.style.textOverflow = 'ellipsis';
+        e.style.whiteSpace = 'nowrap';
+      } else {
+        e.style.whiteSpace = 'normal';
+        e.style.overflowWrap = 'anywhere';
+      }
+    }
     return s;
   }
+  // Encolhe o desenho (aplicar(k), k de 1 ate o piso legivel) ate cabe() dizer sim.
+  function encaixar(aplicar, cabe, piso = 0.6) {
+    let k = 1;
+    aplicar(k);
+    while (!cabe() && k > piso + 1e-9) { k = Math.max(piso, k - 0.05); aplicar(k); }
+    return k;
+  }
+  // Base (em px de 1080x1920) de uma caixa ja montada, sem as transformacoes de animacao.
+  const fundo = (e) => e.offsetTop + e.offsetHeight;
   async function img(src, pai, cls) {
     const s = String(src || '');
     if (!/^(data:image\/|blob:)/.test(s)) throw new Error('imagem precisa vir como data: ou blob:');
@@ -149,7 +172,7 @@ const FX = (() => {
     return i;
   }
   const f = (x, n = 3) => Number(x).toFixed(n);
-  return { easeIn, easeOut, clamp, rgb, rgba, base, env, prog, texto, el, svg, fit, img, f,
+  return { easeIn, easeOut, clamp, rgb, rgba, base, env, prog, texto, el, svg, fit, encaixar, fundo, img, f,
            get D() { return D; } };
 })();
 
@@ -179,7 +202,7 @@ window.setup = async (d) => {
     const im = await FX.img(src, p);
     im.style.width = im.style.height = arr.foto + 'px';
     const rod = FX.el('div', 'rodape', p);
-    if (i === fotos.length - 1 && c.legenda) FX.fit(FX.texto(FX.el('span', 't-corpo', rod), c.legenda), 36, 24, arr.foto);
+    if (i === fotos.length - 1 && c.legenda) FX.fit(FX.texto(FX.el('span', 't-corpo', rod), c.legenda), 36, 24, arr.foto, 'reticencias');
     ITENS.push({ p, rot });
   }
   return true;

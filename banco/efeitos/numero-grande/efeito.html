@@ -25,7 +25,7 @@
   .t-corpo { font-family: var(--font-body); }
 
   .painel { position: absolute; left: 90px; right: 90px; top: 400px; padding: 64px 72px 70px; text-align: center; }
-  .numero { margin: 0; font-weight: 800; font-size: 240px; line-height: 1.02; letter-spacing: -4px;
+  .numero { margin: 0 auto; font-weight: 800; font-size: 240px; line-height: 1.02; letter-spacing: -4px;
             white-space: nowrap; color: var(--fg); transform-origin: 50% 60%; }
   .filete { width: 120px; height: 10px; border-radius: 5px; background: var(--accent); margin: 30px auto 34px; }
   .frase { margin: 0; font-weight: 600; font-size: 54px; line-height: 1.24; color: var(--fg-soft);
@@ -133,13 +133,36 @@ const FX = (() => {
     if (pai) pai.appendChild(e);
     return e;
   }
-  // Reduz a fonte ate o texto caber na largura (uma linha); devolve o tamanho final.
-  function fit(e, max, min, largura) {
-    let s = max;
+  // Reduz a fonte ate o texto caber na largura (uma linha). Se nem no tamanho minimo
+  // couber: quebra a linha (padrao) ou termina em reticencias. Devolve o tamanho final.
+  function fit(e, max, min, largura, modo = 'quebra') {
+    for (const k of ['whiteSpace', 'overflowWrap', 'maxWidth', 'minWidth', 'overflow', 'textOverflow']) e.style[k] = '';
+    let s = Math.round(max);
     e.style.fontSize = s + 'px';
     while (s > min && e.scrollWidth > largura) { s -= 2; e.style.fontSize = s + 'px'; }
+    if (e.scrollWidth > largura) {
+      e.style.maxWidth = largura + 'px';
+      e.style.minWidth = '0';
+      if (modo === 'reticencias') {
+        e.style.overflow = 'hidden';
+        e.style.textOverflow = 'ellipsis';
+        e.style.whiteSpace = 'nowrap';
+      } else {
+        e.style.whiteSpace = 'normal';
+        e.style.overflowWrap = 'anywhere';
+      }
+    }
     return s;
   }
+  // Encolhe o desenho (aplicar(k), k de 1 ate o piso legivel) ate cabe() dizer sim.
+  function encaixar(aplicar, cabe, piso = 0.6) {
+    let k = 1;
+    aplicar(k);
+    while (!cabe() && k > piso + 1e-9) { k = Math.max(piso, k - 0.05); aplicar(k); }
+    return k;
+  }
+  // Base (em px de 1080x1920) de uma caixa ja montada, sem as transformacoes de animacao.
+  const fundo = (e) => e.offsetTop + e.offsetHeight;
   async function img(src, pai, cls) {
     const s = String(src || '');
     if (!/^(data:image\/|blob:)/.test(s)) throw new Error('imagem precisa vir como data: ou blob:');
@@ -150,17 +173,21 @@ const FX = (() => {
     return i;
   }
   const f = (x, n = 3) => Number(x).toFixed(n);
-  return { easeIn, easeOut, clamp, rgb, rgba, base, env, prog, texto, el, svg, fit, img, f,
+  return { easeIn, easeOut, clamp, rgb, rgba, base, env, prog, texto, el, svg, fit, encaixar, fundo, img, f,
            get D() { return D; } };
 })();
 
 window.setup = async (d) => {
   await FX.base(d);
   const c = d.campos || {};
+  const painel = document.getElementById('painel');
   const n = FX.texto(document.getElementById('numero'), c.destaque);
-  FX.fit(n, 240, 110, 756);
-  if (c.frase) FX.texto(FX.el('p', 'frase t-corpo', document.getElementById('painel')), c.frase);
-  else document.getElementById('filete').style.marginBottom = '0';
+  const fr = c.frase ? FX.texto(FX.el('p', 'frase t-corpo', painel), c.frase) : null;
+  if (!fr) document.getElementById('filete').style.marginBottom = '0';
+  FX.encaixar((k) => {
+    FX.fit(n, 240 * k, 110 * k, 756);
+    if (fr) fr.style.fontSize = (54 * k) + 'px';
+  }, () => FX.fundo(painel) <= d.area.bottom - 60);
   return true;
 };
 

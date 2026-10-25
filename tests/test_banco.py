@@ -360,13 +360,13 @@ def test_ceilings(tmp_path):
     for nome, m in casos.items():
         d = escreve(tmp_path, "efeitos" if nome.startswith("dur") else "paletas", nome, m)
         (d / "efeito.html").write_text("x", encoding="utf-8")
-    ok = escreve(tmp_path, "efeitos", "dur-600", {**ef, "duracao": {"padrao": 3, "min": 1, "max": 600}})
+    ok = escreve(tmp_path, "efeitos", "dur-30", {**ef, "duracao": {"padrao": 3, "min": 1, "max": 30}})
     (ok / "efeito.html").write_text("x", encoding="utf-8")
     escreve(tmp_path, "paletas", "campo-ok", num(min=0, max=1000000))
     escreve(tmp_path, "paletas", "opcao-60", manifesto(campos=[
         {"id": "a", "rotulo": "A", "tipo": "escolha", "opcoes": ["x" * 60]}]))
     b = banco.carregar(tmp_path)
-    assert {i["id"] for i in b.itens("efeito")} == {"dur-600"}
+    assert {i["id"] for i in b.itens("efeito")} == {"dur-30"}  # efeito: teto de 30 s
     assert {i["id"] for i in b.itens("paleta")} == {"campo-ok", "opcao-60"}
     assert set(motivos(b)) == set(casos)
 

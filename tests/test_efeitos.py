@@ -80,6 +80,50 @@ def _campos(eid):
     return c
 
 
+LARGO = "WÃMÉWÔQ"  # letras largas e acentuadas: pior caso de largura
+
+
+def _largo(n: int) -> str:
+    return (LARGO * n)[:n]
+
+
+def _mes_de_seis_semanas():
+    """(mes, ano) cujo dia 1 cai num sabado e que tem 31 dias: a folha mais alta."""
+    import datetime
+    nomes = _item("calendario")["campos"][0]["opcoes"]
+    for ano in range(2026, 2040):
+        for m in (1, 3, 5, 7, 8, 10, 12):
+            if datetime.date(ano, m, 1).weekday() == 5:
+                return nomes[m - 1], ano
+    raise AssertionError("sem mes de 6 semanas")
+
+
+def _pior(eid):
+    """Campos no pior caso permitido pelo manifesto: todo texto no ``max`` com letras
+    largas, toda lista no maximo de itens, as escolhas que mais ocupam espaco."""
+    c = {}
+    for f in _item(eid)["campos"]:
+        n = f["itens"]["max"] if "itens" in f else None
+        if f["tipo"] == "texto":
+            v = _largo(int(f.get("max", graphics.TEXTO_MAX)))
+            c[f["id"]] = [v] * n if n else v
+        elif f["tipo"] == "imagem":
+            fotos = ["quadro:0.5", "materiais/foto.png", "quadro:1.5"]
+            c[f["id"]] = (fotos * 2)[:n] if n else "materiais/foto.png"
+        elif f["tipo"] == "numero":
+            mx = f.get("max", 100)
+            c[f["id"]] = [int(mx) - i for i in range(n)] if n else mx
+        elif f["tipo"] == "escolha":
+            c[f["id"]] = max(f["opcoes"], key=len)
+    if eid == "calendario":
+        c["mes"], c["ano"] = _mes_de_seis_semanas()
+    if eid == "pilula-destaque":
+        c["altura"] = "embaixo"
+    if eid == "circulo-a-mao":
+        c["tamanho"] = "grande"
+    return c
+
+
 def _dur(eid):
     d = _item(eid)["duracao"]
     return min(max(d["min"], 1.2), d["max"])
@@ -314,7 +358,8 @@ def test_effect_renders_clip_with_alpha_and_duration(clipe):
 
 @pytest.fixture(scope="module", params=IDS)
 def quadros(request, projeto):
-    """Quadros 1080x1920 medidos em t = 0, meio da entrada, fim da entrada, meio, saida, fim."""
+    """Quadros 1080x1920 medidos em t = 0, meio da entrada, fim da entrada, meio, saida, fim,
+    com os campos no PIOR CASO que o manifesto permite (texto no max, listas cheias)."""
     _need_renderer()
     eid = request.param
     dur = _dur(eid)
@@ -322,26 +367,43 @@ def quadros(request, projeto):
     ts = [0.0, graphics.ENTER_S / 2, graphics.ENTER_S, (graphics.ENTER_S + last - graphics.EXIT_S) / 2,
           last - graphics.EXIT_S / 2, last]
     t0 = time.monotonic()
-    res = graphics.inspect_effect(eid, _campos(eid), BRAND, project=projeto, dur=dur, ts=ts)
+    res = graphics.inspect_effect(eid, _pior(eid), BRAND, project=projeto, dur=dur, ts=ts)
     assert time.monotonic() - t0 < LIMITE_S + 3  # Chromium + quadro do video
     return eid, res["quadros"]
 
 
 def test_effect_respects_safe_areas(quadros):
+    """Pior caso: nada acima de y=250 nem dentro da faixa da legenda (y > 1580)."""
     eid, qs = quadros
     for q in qs:
         assert q["pageErrors"] == []
         assert q["caixas"], f"{eid}: nada medido em t={q['t']}"
         for c in q["caixas"]:
             assert c["top"] >= TOPO - 0.5 and c["bottom"] <= BASE + 0.5, (eid, q["t"], c)
-            assert c["left"] >= -0.5 and c["right"] <= 1080.5, (eid, q["t"], c)
         im = Image.open(io.BytesIO(q["png"]))
         assert im.size == (1080, 1920)
         bbox = im.getchannel("A").getbbox()
         if bbox:
-            l, t, r, b = bbox
-            assert t >= TOPO and b <= BASE, (eid, q["t"], bbox)
-            assert l >= 0 and r <= 1080
+            assert bbox[1] >= TOPO and bbox[3] <= BASE, (eid, q["t"], bbox)
+
+
+def test_effect_worst_case_stays_inside_horizontally(quadros):
+    """Pior caso: nada sai pela esquerda/direita e nenhum texto fica cortado por uma
+    caixa (texto que nao cabe quebra a linha ou termina em reticencias)."""
+    eid, qs = quadros
+    for q in qs[2:4]:  # cheio (fim da entrada e meio)
+        for c in q["caixas"]:
+            assert c["left"] >= -0.5 and c["right"] <= 1080.5, (eid, q["t"], c)
+        assert q["cortados"] == [], (eid, q["cortados"])
+        l, _, r, _ = Image.open(io.BytesIO(q["png"])).getchannel("A").getbbox()
+        assert l >= 0 and r <= 1080
+        assert len(q["textos"]) == sum(len(v) if isinstance(v, list) else 1
+                                       for k, v in _pior(eid).items()
+                                       if _campo(eid, k)["tipo"] == "texto")
+
+
+def _campo(eid, cid):
+    return next(c for c in _item(eid)["campos"] if c["id"] == cid)
 
 
 def test_effect_entrance_and_exit_frames(quadros):
@@ -545,3 +607,69 @@ def test_driver_refuses_html_outside_bank(tmp_path):
            "data": {}, "inspect": {"ts": [0.0]}}
     with pytest.raises(graphics.GraphicsError, match="fora do banco"):
         graphics._drive(job, tmp_path, "teste")
+
+
+# ---------------------------------------------------------------- fim do video e teto de duracao
+
+def _proj_video(root: Path, transcricao: float | None = None) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    _video(root / "entrada.mp4")  # 2 s
+    if transcricao is not None:
+        (root / "transcricao.json").write_text(json.dumps({"duration": transcricao, "words": [
+            {"w": "oi", "start": 0.1, "end": 0.4}]}), "utf-8")
+        (root / "cortes.json").write_text('{"cuts": []}', "utf-8")
+    return root
+
+
+def test_quadro_beyond_video_rejected_on_validate(tmp_path):
+    # sem transcricao/cortes: a duracao vem do proprio video (ffprobe)
+    proj = _proj_video(tmp_path / "p")
+    ok = graphics.validate(_spec("polaroides", {"imagens": ["quadro:1.5"]}), proj)
+    assert ok["campos"]["imagens"][0]["quadro"] == 1.5
+    with pytest.raises(graphics.GraphicsError, match="o segundo 5 está depois do fim do vídeo"):
+        graphics.validate(_spec("polaroides", {"imagens": ["quadro:5"]}), proj)
+
+
+def test_quadro_beyond_end_fails_clearly_at_render(tmp_path, monkeypatch):
+    _need_renderer()
+    proj = _proj_video(tmp_path / "p")
+    monkeypatch.setattr(graphics, "_duracao_video", lambda video: None)  # duracao desconhecida
+    c = graphics.validate(_spec("polaroides", {"imagens": ["quadro:9"]}), proj)
+    with pytest.raises(graphics.GraphicsError, match="o segundo 9 está depois do fim do vídeo") as e:
+        graphics.render_clip(c, BRAND, tmp_path / "o.webm", size=(270, 480))
+    assert "sem quadro" not in str(e.value)
+    assert not (tmp_path / "o.webm").exists()
+
+
+def test_effect_ending_after_video_is_error_when_known(tmp_path, no_tools):
+    proj = tmp_path / "p"
+    proj.mkdir()
+    (proj / "transcricao.json").write_text(json.dumps({"duration": 3.0, "words": []}), "utf-8")
+    (proj / "cortes.json").write_text('{"cuts": []}', "utf-8")
+    campos = {"destaque": "60 dias"}
+    assert graphics.validate(_spec("numero-grande", campos, at=0.5, dur=2.5), proj)["dur"] == 2.5
+    with pytest.raises(graphics.GraphicsError, match="depois do fim do vídeo"):
+        graphics.validate(_spec("numero-grande", campos, at=2.0, dur=2.0), proj)
+    # sem transcricao a duracao nao e conhecida: aceita (o render encurta)
+    assert graphics.validate(_spec("numero-grande", campos, at=50, dur=2.0), tmp_path)["at"] == 50
+    # formato antigo continua sendo encurtado/ignorado pelo render (comportamento de sempre)
+    legado = {"id": "k", "title": "t", "body": None, "at": 2.0, "dur": 2.0, "material": None}
+    assert graphics.validate(legado, proj)["dur"] == 2.0
+
+
+def test_effect_duration_ceiling(tmp_path, no_tools, monkeypatch):
+    ef = {"nome": "E", "descricao": "E.", "tipo": "efeito", "campos": [],
+          "dados": {"area_segura": True}}
+    for nome, mx in (("trinta", 30), ("longo", 31)):
+        d = tmp_path / "efeitos" / nome
+        d.mkdir(parents=True)
+        (d / "manifesto.json").write_text(json.dumps({**ef, "duracao": {"padrao": 3, "min": 1, "max": mx}}),
+                                          "utf-8")
+        (d / "efeito.html").write_text("<html></html>", "utf-8")
+    b = banco.carregar(tmp_path)
+    assert [i["id"] for i in b.itens("efeito")] == ["trinta"]
+    assert "30" in b.erros[0]["motivo"]
+    item = {**_item("numero-grande"), "duracao": {"padrao": 3, "min": 1, "max": 600}}
+    monkeypatch.setattr(graphics, "item_efeito", lambda *a, **k: item)
+    with pytest.raises(graphics.GraphicsError, match="30 s"):
+        graphics.validate(_spec("numero-grande", {"destaque": "1"}, dur=31), tmp_path)

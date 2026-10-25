@@ -8,8 +8,11 @@ Layout do projeto (um diretorio por Reel, ``projects/<reel>/``)::
         cortes.json        {"cuts": [{"id", "start", "end", "kind"}]} (cut.py detect / revisao)
         estilo.json        opcional: paleta, fonte, legenda e cards (scripts/estilo.py);
                            sem ele o resultado e o de sempre
-        graficos.json      opcional: {"cards": [{id, title, body, at, dur, material}]}
-                           (``at`` na linha do tempo cortada; ver graphics.py)
+        graficos.json      opcional: {"cards": [item, ...]}, cada item em um de dois formatos:
+                           {id, efeito, campos, at, dur} (efeito do banco, banco/efeitos/<id>/;
+                           ``campos`` conforme o manifesto do efeito) ou o antigo
+                           {id, title, body, at, dur, material} (vale como efeito
+                           card-destaque). ``at`` na linha do tempo cortada; ver graphics.py
         revisao.json       opcional: {"graphics": {"<id>": "drop"}} tira o card
         saida/
             preview.mp4    rascunho 540x960

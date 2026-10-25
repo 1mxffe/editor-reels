@@ -81,9 +81,24 @@ function medir(scale) {
     if (r.width <= 0 || r.height <= 0) continue;
     caixas.push({ ...box(r), id: el.id || null });
   }
+  // texto cortado: caixa que esconde o que transborda, ou texto que passa da propria
+  // largura (reticencias de proposito nao contam)
+  const cortados = [];
+  for (const el of [root, ...root.querySelectorAll('*')]) {
+    if (el.hasAttribute('data-moldura') || el instanceof SVGElement) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.textOverflow === 'ellipsis') continue;
+    const esconde = cs.overflowX !== 'visible' || cs.overflowY !== 'visible';
+    const largo = el.scrollWidth > el.clientWidth + 1;
+    const alto = el.scrollHeight > el.clientHeight + 1;
+    if ((esconde && (largo || alto)) || (el.hasAttribute('data-texto') && largo)) {
+      cortados.push({ id: el.id || null, classe: el.className || null, texto: (el.textContent || '').slice(0, 30) });
+    }
+  }
   const imgs = [...document.querySelectorAll('img')];
   return {
     caixas,
+    cortados,
     opacidade: Number(getComputedStyle(root).opacity),
     textos: [...document.querySelectorAll('[data-texto]')].map((e) => e.textContent),
     imgCount: imgs.length,

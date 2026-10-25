@@ -34,7 +34,7 @@ Cada item é uma pasta com um arquivo `manifesto.json`. A tela de Estilo lê tud
 ## Regras
 
 - `nome` até 60 caracteres e `descricao` até 300, sem caracteres de controle ou invisíveis. Chaves repetidas no JSON não são aceitas.
-- Limites: duração até 600 s; `min`/`max` de campo entre 0 e 1.000.000; cada opção até 60 caracteres; `efeito.html` até 1 MiB.
+- Limites: duração até 600 s (efeito: até 30 s); `min`/`max` de campo entre 0 e 1.000.000; cada opção até 60 caracteres; `efeito.html` até 1 MiB.
 - `tipo` precisa ser o da pasta onde o item está.
 - `campos` é o que a pessoa preenche (`texto`, `numero`, `imagem`, `cor` ou `escolha`);
   `max` e `min` são números e `0 <= min <= max`; `escolha` pede `opcoes` (até 20 textos).
