@@ -1,0 +1,21 @@
+{"words": [
+  {"w": "O", "start": 0.50, "end": 0.70},
+  {"w": "prazo", "start": 0.70, "end": 1.10},
+  {"w": "para", "start": 1.10, "end": 1.30},
+  {"w": "recorrer", "start": 1.30, "end": 1.70},
+  {"w": "conta", "start": 1.70, "end": 1.95},
+  {"w": "em", "start": 1.95, "end": 2.05},
+  {"w": "dias", "start": 2.05, "end": 2.25},
+  {"w": "úteis,", "start": 2.25, "end": 2.45},
+  {"w": "não", "start": 2.45, "end": 2.60},
+  {"w": "corridos,", "start": 2.60, "end": 3.00},
+  {"w": "segundo", "start": 3.00, "end": 3.30},
+  {"w": "o", "start": 3.30, "end": 3.40},
+  {"w": "CPC.", "start": 3.40, "end": 3.80},
+  {"w": "Leia", "start": 4.80, "end": 5.10},
+  {"w": "a", "start": 5.10, "end": 5.20},
+  {"w": "{intimação}", "start": 5.20, "end": 5.70},
+  {"w": "com", "start": 5.70, "end": 5.90},
+  {"w": "calma\\", "start": 5.90, "end": 6.30},
+  {"w": "R$ 1.000,00!", "start": 6.40, "end": 7.00}
+]}

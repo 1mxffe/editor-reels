@@ -1,0 +1,15 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Legenda,Poppins,64,&H00F5EBDD,&H00F5EBDD,&H73311900,&H73311900,-1,0,0,0,100,100,0,0,3,14,0,2,72,72,340,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.50,0:00:03.80,Legenda,,0,0,0,,{\fad(100,100)}O prazo para recorrer conta em dias\Núteis, não corridos, segundo o CPC.
+Dialogue: 0,0:00:04.80,0:00:07.00,Legenda,,0,0,0,,{\fad(100,100)}Leia a (intimação) com calma\NR$ 1.000,00!
