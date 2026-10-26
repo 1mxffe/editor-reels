@@ -379,7 +379,7 @@ export function painelClipes(ctx) {
       confirmarTexto.textContent = 'O vídeo novo tem outra duração, então o que foi feito com o vídeo atual deixa de valer. Será apagado:';
       confirmarLista.replaceChildren(...confirmando.map((x) => el('li', {}, x)));
     }
-    if (foco) {
+    if (foco && !salvando) { // enquanto salva os botoes estao desligados: o foco espera a resposta
       const f = foco;
       foco = null;
       let alvo = null;

@@ -138,6 +138,19 @@ está pronto; o que você já fez fica guardado, mesmo se fechar e abrir de novo
 8. **Final** — gere o Reel pronto. O botão **Abrir pasta** mostra o arquivo no
    Finder.
 
+### Juntar vários trechos
+
+Gravou em partes? No passo **Vídeo**, escolha **Juntar vários trechos**, arraste os
+arquivos (vários de uma vez) e deixe-os na ordem certa com **Subir** e **Descer**
+(ou arrastando). **Remover** tira um trecho da lista. Clique em **Montar vídeo**:
+o editor junta tudo num vídeo só, em formato vertical. Trechos deitados ou
+quadrados ficam com faixas pretas, sem esticar a imagem. Se o Reel já tinha cortes,
+legendas, gráficos ou vídeos gerados, o editor avisa que vai apagá-los e só continua
+depois do seu "Entendi, montar e recomeçar os cortes". O estilo, a capa e os
+materiais ficam. Limites: até 40 trechos e 30 minutos no total. Se você mudar a
+lista depois de montar, a tela avisa; monte de novo. Enviar um vídeo pelo
+**Um vídeo só** troca o vídeo, mas não mexe na lista de trechos.
+
 ### O passo Estilo
 
 Quatro abas com cartões. Cada cartão mostra um quadro do seu próprio vídeo já com
