@@ -350,6 +350,7 @@ await cenario('troca', async () => {
   await pg.waitForSelector(`#lista-projetos .projeto[data-slug="${S.trocaB}"]`);
   await pg.click(`#lista-projetos .projeto[data-slug="${S.trocaB}"]`);
   await pg.waitForSelector('#painel[data-passo="video"]');
+  await esperar(async () => (await pg.textContent('#projeto-atual')).includes('Reel B'), LONGO, 100);
   r.cabecalho = await pg.textContent('#projeto-atual');
   await modoJuntar(pg);
   // espera o envio do Reel A terminar (2 x 1,2 s) e confere que nada vazou para o B
