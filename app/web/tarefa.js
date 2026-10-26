@@ -14,6 +14,7 @@ export const ROTULOS = {
   capa: 'Desenhando a capa',
   quadros: 'Preparando os exemplos',
   'aplicar-estilo': 'Aplicando o estilo e montando o preview',
+  juntar: 'Montando o vídeo com os trechos',
 };
 const FALHAS = {
   transcrever: 'Não deu para reconhecer a fala.',
@@ -24,6 +25,7 @@ const FALHAS = {
   capa: 'Não deu para gerar a capa.',
   quadros: 'Não deu para preparar os exemplos.',
   'aplicar-estilo': 'Não deu para aplicar o estilo.',
+  juntar: 'Não deu para montar o vídeo.',
 };
 // o que comeca sozinho quando o anterior termina bem
 const SEGUINTE = { transcrever: 'cortes' };

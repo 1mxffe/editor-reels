@@ -19,7 +19,8 @@ BRAND = REPO / "brand" / "brand.json"
 FALSO = REPO / "tests" / "fixtures_app.py"  # transcricao fixa: so em modo de teste
 
 TIPOS = ("transcrever", "cortes", "preview", "final",
-         "capa-candidatos", "capa", "instalar-chromium", "quadros", "aplicar-estilo")
+         "capa-candidatos", "capa", "instalar-chromium", "quadros", "aplicar-estilo",
+         "juntar")
 
 SAIDAS = {
     "transcrever": ["transcricao.json"],
@@ -30,6 +31,7 @@ SAIDAS = {
     "capa": ["capa/capa.png"],
     "instalar-chromium": [],
     "aplicar-estilo": ["saida/preview.mp4"],
+    "juntar": ["entrada.mp4"],
 }
 ABAS = ("paletas", "legendas", "efeitos")
 MAX_T = 24 * 3600
@@ -115,6 +117,12 @@ def _quadro(nome, valor):
     return valor
 
 
+def _booleano(nome, valor):
+    if not isinstance(valor, bool):
+        raise ValueError(f"'{nome}' deve ser verdadeiro ou falso")
+    return valor
+
+
 def _segundos(nome, valor):
     if (isinstance(valor, bool) or not isinstance(valor, (int, float)) or valor != valor
             or not 0 <= valor <= MAX_T):
@@ -137,6 +145,7 @@ OPCOES = {
              "subtitulo": lambda n, v: _texto(n, v, permitir_quebra=True)},
     "instalar-chromium": {},
     "quadros": {"aba": lambda n, v: _enum(n, v, ABAS), "t": _segundos},
+    "juntar": {"confirmar": _booleano},
 }
 
 
@@ -199,6 +208,8 @@ def argv(tipo: str, project: Path, *, falso: bool = False, marca: Path | None = 
         if "lang" in opts:
             cmd.append(f"--lang={opts['lang']}")
         return cmd + [str(_entrada(project)), str(project / "transcricao.json")]
+    if tipo == "juntar":  # trechos de clipes/ -> entrada.mp4; --confirmar apaga os derivados
+        return _py("juntar.py") + [str(project)] + (["--confirmar"] if opts.get("confirmar") else [])
     if tipo == "cortes":
         return _py("cut.py") + ["detect", str(project / "transcricao.json"),
                                 str(project / "cortes.json")]

@@ -1,8 +1,10 @@
-// Passo 1, Video: criar/abrir um Reel e enviar o video bruto (XHR com progresso).
+// Passo 1, Video: criar/abrir um Reel e enviar o video bruto (XHR com progresso) ou juntar
+// varios trechos num video so (passos/clipes.js).
 import { EDITOR_FECHADO, TOKEN, api, el, frase, icone, registrarPasso, relogio, tamanho, toast } from '../nucleo.js';
+import { versaoDe } from '../tarefa.js';
+import { EXTENSOES, FORMATOS, extensao, painelClipes } from './clipes.js';
 
-const EXTENSOES = ['.mp4', '.mov', '.m4v', '.webm', '.mkv'];
-const FORMATOS = 'MP4, MOV, M4V, WEBM ou MKV';
+const modos = new Map(); // slug -> 'um' | 'juntar' (a escolha vale enquanto a pagina estiver aberta)
 
 // O envio continua se a pessoa trocar de passo; ao voltar, a tela mostra onde parou.
 let envio = null; // {slug, xhr, enviado, total, conferindo}
@@ -10,11 +12,6 @@ let aviso = null; // {slug, tipo: 'erro'|'info', texto}
 let telaAtual = null; // funcao que repinta a tela aberta (ou null)
 
 function repintar() { if (telaAtual) telaAtual(); }
-
-function extensao(nome) {
-  const i = nome.lastIndexOf('.');
-  return i >= 0 ? nome.slice(i).toLowerCase() : '';
-}
 
 function avisar(slug, tipo, texto) {
   aviso = { slug, tipo, texto };
@@ -185,7 +182,7 @@ function cartaoInfo(ctx) {
   });
   return el('div', { id: 'video-info', class: 'cartao info-video' },
     el('div', { class: 'info-topo' }, el('span', { class: 'bola-ok' }, icone('ok')),
-      el('h2', {}, 'Vídeo recebido')),
+      el('h2', {}, ctx.estado.video_montado_de_clipes ? 'Vídeo montado' : 'Vídeo recebido')),
     el('dl', {},
       el('div', {}, el('dt', {}, 'Duração'), duracao),
       el('div', {}, el('dt', {}, 'Formato'), formato)),
@@ -229,10 +226,29 @@ function telaProjeto(container, ctx) {
   const erro = el('p', { id: 'video-erro', class: 'mensagem-erro', role: 'alert', hidden: true });
   const info = el('p', { id: 'video-aviso', class: 'mensagem-info', hidden: true });
 
+  const inicial = modos.get(ctx.slug) || (ctx.estado && ctx.estado.clipes > 0 ? 'juntar' : 'um');
+  const botoesModo = {};
+  const trocarModo = (m) => {
+    modos.set(ctx.slug, m);
+    for (const [k, b] of Object.entries(botoesModo)) b.setAttribute('aria-pressed', k === m ? 'true' : 'false');
+    umSo.hidden = m !== 'um';
+    if (m === 'juntar' && !varios.firstChild) varios.append(painelClipes(ctx));
+    varios.hidden = m !== 'juntar';
+  };
+  for (const [k, texto] of [['um', 'Um vídeo só'], ['juntar', 'Juntar vários trechos']]) {
+    botoesModo[k] = el('button', { type: 'button', id: `modo-${k}`, class: 'botao botao-secundario', 'aria-pressed': 'false',
+      onclick: () => trocarModo(k) }, texto);
+  }
+  const umSo = el('div', { id: 'modo-um-painel', class: 'modo-painel' }, zona, caixaEnvio, erro, info);
+  const varios = el('div', { id: 'modo-juntar-painel', class: 'modo-painel', hidden: true });
+
   container.append(
     el('p', { class: 'lead' }, 'Envie o vídeo do jeito que saiu da câmera. Pausas e erros de fala se resolvem no passo seguinte.'),
     temVideo ? cartaoInfo(ctx) : null,
-    zona, caixaEnvio, erro, info);
+    el('div', { class: 'modo-escolha', role: 'group', 'aria-label': 'Como enviar o vídeo' },
+      botoesModo.um, botoesModo.juntar),
+    umSo, varios);
+  trocarModo(inicial);
 
   telaAtual = () => {
     if (!container.isConnected) { telaAtual = null; return; }
@@ -257,6 +273,13 @@ function telaProjeto(container, ctx) {
 
 registrarPasso({
   id: 'video',
+  tarefas: ['juntar'],
+  // depois de montar, o player mostra o video montado (a versao muda a cada montagem)
+  video(estado, slug) {
+    const arq = estado && estado.arquivos;
+    if (!arq || !arq.entrada || arq.final || arq.preview || !estado.video_montado_de_clipes) return null;
+    return { rel: arq.entrada, rotulo: 'Vídeo montado com os trechos', versao: versaoDe(slug, 'juntar') };
+  },
   render(container, ctx) {
     telaAtual = null;
     if (!ctx.slug || !ctx.estado) {

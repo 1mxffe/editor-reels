@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import common  # noqa: E402
+import juntar  # noqa: E402
 
 SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 SLUG_MAX = 40
@@ -269,6 +270,8 @@ class Projects:
             "final": "saida/final.mp4" if feito["final"] else None,
         }
         meta = self._meta(d)
+        clipes, montado = juntar.ler(d)
+        montagem = juntar.situacao_montagem(d, clipes, montado)
         candidatos = []
         capa_dir = d / "capa"
         if capa_dir.is_dir() and not capa_dir.is_symlink():
@@ -292,4 +295,10 @@ class Projects:
                 and so_graficos(d, "preview"),
                 # quadros para a capa (capa-candidatos), na ordem do video, e a foto enviada
                 "capa_candidatos": candidatos,
+                # trechos enviados para juntar (clipes/); o envio direto de um video nao mexe
+                # na lista. `video_montado_de_clipes`: o entrada.mp4 atual saiu da montagem;
+                # `montagem_desatualizada`: a lista ou a ordem mudou depois dela
+                "clipes": len(clipes),
+                "video_montado_de_clipes": montagem["montado"],
+                "montagem_desatualizada": montagem["desatualizada"],
                 "arquivos": arquivos}

@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import brand  # noqa: E402
+import clipes_api  # noqa: E402
 import common  # noqa: E402
 import estilo_api  # noqa: E402
 import instalacao  # noqa: E402
@@ -460,6 +461,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not self._permitir("PUT"):
                     return
                 return self.api_upload(slug)
+            if resto[1] == "clipes":
+                return clipes_api.rota(self, slug, resto[2].split("/") if len(resto) == 3 else [])
             if resto[1] == "jobs" and len(resto) == 2:
                 if not self._permitir("GET"):
                     return
@@ -543,17 +546,25 @@ class Handler(BaseHTTPRequestHandler):
         if not trava.acquire(blocking=False):
             return self.json_reply(409, {"erro": "a revisão deste projeto está em andamento",
                                          "codigo": "revisao_em_andamento"})
+        # juntar: a lista de trechos nao muda entre conferir e iniciar a tarefa
+        trava_clipes = clipes_api.trava(slug) if tipo == "juntar" else contextlib.nullcontext()
         try:
-            if tipo == "aplicar-estilo":  # grava o estilo.json so sem tarefa rodando
-                if self.app.jobs.ativo_em(slug):
-                    raise JobBusy()
-                try:
-                    estilo_api.salvar(d, opts)
-                except (ValueError, OSError) as e:
-                    return self.error(400, revisao_api.sanitizar(str(e), d)[:500])
-            if tipo in ("preview", "final", "aplicar-estilo"):  # o que estes cortes/legendas vao gerar
-                projects_mod.registrar_origem(d, "preview" if tipo == "aplicar-estilo" else tipo)
-            job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT, saidas, ocultar=d)
+            with trava_clipes:
+                if tipo == "juntar":
+                    if self.app.jobs.ativo_em(slug):
+                        raise JobBusy()
+                    if clipes_api.pre_juntar(self, slug, d, opts):
+                        return
+                if tipo == "aplicar-estilo":  # grava o estilo.json so sem tarefa rodando
+                    if self.app.jobs.ativo_em(slug):
+                        raise JobBusy()
+                    try:
+                        estilo_api.salvar(d, opts)
+                    except (ValueError, OSError) as e:
+                        return self.error(400, revisao_api.sanitizar(str(e), d)[:500])
+                if tipo in ("preview", "final", "aplicar-estilo"):  # o que estes cortes/legendas vao gerar
+                    projects_mod.registrar_origem(d, "preview" if tipo == "aplicar-estilo" else tipo)
+                job_id = self.app.jobs.start(slug, tipo, argv, REPO_ROOT, saidas, ocultar=d)
         except JobBusy:
             return self.json_reply(409, {"erro": "já existe uma tarefa rodando neste projeto",
                                          "codigo": "tarefa_rodando"})

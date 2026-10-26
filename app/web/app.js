@@ -304,6 +304,7 @@ async function iniciar() {
 // fim de um trabalho do Reel aberto: recarrega o estado; a tela repinta se o trabalho e dela
 quandoTerminar((slug, job) => {
   if (slug !== app.slug) return;
+  if (job.tipo === 'juntar' && job.estado === 'ok') app.player.limpar(); // entrada.mp4 mudou por baixo
   const def = passo(app.atual);
   const daTela = !!(def && Array.isArray(def.tarefas) && def.tarefas.includes(job.tipo));
   atualizar({ repintarPainel: daTela });

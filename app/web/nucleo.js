@@ -50,7 +50,9 @@ export async function api(metodo, caminho, corpo) {
     if (resp.status === 401) aoPerderChave();
     const msg = dados && typeof dados.erro === 'string' ? frase(dados.erro)
       : `O editor respondeu com um erro (${resp.status}). Tente de novo.`;
-    throw new Erro(msg, resp.status, dados && dados.codigo);
+    const erro = new Erro(msg, resp.status, dados && dados.codigo);
+    erro.dados = dados; // corpo da resposta (ex.: lista `perde` do pedido de confirmacao)
+    throw erro;
   }
   return dados;
 }

@@ -864,3 +864,43 @@ select:focus-visible { outline-offset: 0; border-color: var(--foco); }
   .estilo-barra { margin: 0; }
   .estilo-barra .botao { flex: 1 1 100%; }
 }
+
+/* ------------------------------------------------- juntar vários trechos */
+.modo-escolha { display: flex; gap: 8px; flex-wrap: wrap; }
+.modo-escolha .botao { flex: 1 1 180px; }
+.modo-escolha .botao[aria-pressed="true"] { background: var(--acento); color: var(--marinho); border-color: var(--destaque); }
+.modo-painel { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.modo-painel[hidden] { display: none; }
+.juntar { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.clipes-cabeca { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.clipes-titulo { font-size: 1.0625rem; }
+.clipes-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.clipe {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px 12px;
+  padding: 10px 12px; background: var(--superficie); border: 1px solid var(--borda);
+  border-radius: 12px; cursor: grab;
+}
+.clipe.arrastando { opacity: .5; }
+.clipe.alvo { border-color: var(--destaque); box-shadow: 0 0 0 2px var(--acento); }
+.clipe-num {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--info-fundo); color: var(--destaque); font-family: var(--titulo); font-size: .875rem;
+}
+.clipe-info { display: flex; flex-direction: column; min-width: 0; }
+.clipe-nome { overflow-wrap: anywhere; }
+.clipe-meta { font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.clipe-acoes { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.clipe-acoes .botao { padding: 0 12px; }
+.clipes-problemas { margin: 8px 0; padding-left: 18px; overflow-wrap: anywhere; font-size: .875rem; }
+.clipes-avisos { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.clipes-avisos .mensagem-erro { align-self: stretch; }
+.confirmar-juntar { display: flex; flex-direction: column; gap: 8px; }
+.confirmar-juntar h3 { font-size: 1rem; }
+.confirmar-juntar ul { margin: 0; padding-left: 20px; }
+@media (max-width: 599px) {
+  .clipe { grid-template-columns: auto minmax(0, 1fr); }
+  .clipe-acoes { grid-column: 1 / -1; justify-content: stretch; }
+  .clipe-acoes .botao { flex: 1 1 auto; }
+  .confirmar-juntar .botao { flex: 1 1 100%; }
+  #clipes-montar { width: 100%; }
+}
